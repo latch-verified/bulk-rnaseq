@@ -21,9 +21,6 @@ from kubernetes.client.models import (V1Container, V1PodSpec,
                                       V1ResourceRequirements, V1Toleration)
 from latch import map_task, message, small_task, workflow
 from latch.types import LatchDir, LatchFile
-from pandas import merge
-
-from wf.gtf_to_gbc import gtf_to_gbc
 
 
 def _capture_output(command: List[str]) -> Tuple[int, str]:
