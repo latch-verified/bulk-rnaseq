@@ -44,7 +44,7 @@ Latch Verified
 #### Disclaimer
 
 This workflow assumes that your sequencing reads were derived from *short-read
-cDNA seqeuncing* ( as opposed to long-read cDNA/direct RNA sequencing). If in
+cDNA sequencing* ( as opposed to long-read cDNA/direct RNA sequencing). If in
 doubt, you can likely make the same assumption, as it is by far the most common
 form of "RNA-sequencing".
 
