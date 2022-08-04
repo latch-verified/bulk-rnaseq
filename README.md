@@ -93,7 +93,8 @@ Short-read sequencing introduces adapters, small sequences attached to the 5'
 and 3' end of cDNA fragments, that are present as artifacts in our FastQ files
 and must be removed.
 
-We have yet to identify a comprehensive review of the various trimming tools, so
+We have yet to identify a comprehensive review of the various trimming tools to
+benchmark both accuracy and speed, so
 we have selected [TrimGalore](https://github.com/FelixKrueger/TrimGalore)
 trusted by researchers we work with out of UCSF and Stanford, until we are able
 to do so ourself.
