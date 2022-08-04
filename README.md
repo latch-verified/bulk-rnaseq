@@ -1,6 +1,6 @@
 <html>
 <p align="center">
-  <img src="" alt="Latch Verified" width="100">
+  <img src="https://user-images.githubusercontent.com/31255434/182674961-b5b9ce91-ef56-48e7-80d1-cca029d25f78.jpg" alt="Latch Verified" width="100">
 </p>
 
 <h1 align="center">
