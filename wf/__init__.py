@@ -1088,11 +1088,12 @@ def rnaseq(
 
 LaunchPlan(
     rnaseq,
-    "Inflammatory Bowel Disease",
+    "Test Data - CoCl2 vs Control (Knyazev, 2021)",
     {
         "samples": [
             Sample(
-                name="test_sample", strandedness=Strandedness.auto,
+                name="test_sample",
+                strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
                         r1=LatchFile(
@@ -1177,7 +1178,7 @@ LaunchPlan(
                         ),
                     ),
                 ],
-            )
+            ),
         ],
         "run_name": "Inflammatory Bowel Disease",
     },
