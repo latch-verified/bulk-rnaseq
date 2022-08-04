@@ -20,6 +20,7 @@ from flytekitplugins.pod import Pod
 from kubernetes.client.models import (V1Container, V1PodSpec,
                                       V1ResourceRequirements, V1Toleration)
 from latch import map_task, message, small_task, workflow
+from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
 
 
@@ -864,6 +865,8 @@ def rnaseq(
 
     __metadata__:
         display_name: Bulk RNAseq
+        wiki_url: https://www.latch.wiki/bulk-rna-seq-end-to-end
+        video_tutorial: https://www.loom.com/share/dfba09ba6f524722b5d829f2424a3a3f
         author:
             name: LatchBio
             email:
@@ -1083,27 +1086,99 @@ def rnaseq(
     )
 
 
-if __name__ == "wf":
-    LaunchPlan.create(
-        "wf.__init__.rnaseq.Test Data",
-        rnaseq,
-        default_inputs={
-            "samples": [
-                Sample(
-                    name="test_sample",
-                    strandedness=Strandedness.auto,
-                    replicates=[
-                        PairedEndReads(
-                            r1=LatchFile(
-                                "s3://latch-public/welcome/rnaseq/r1.fastq",
-                            ),
-                            r2=LatchFile(
-                                "s3://latch-public/welcome/rnaseq/r2.fastq",
-                            ),
-                        )
-                    ],
-                )
-            ],
-            "run_name": "Test Run",
-        },
-    )
+LaunchPlan(
+    rnaseq,
+    "Inflammatory Bowel Disease",
+    {
+        "samples": [
+            Sample(
+                name="test_sample", strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/IBD/Control_rep1.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+            Sample(
+                name="test_sample",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/IBD/Control_rep2.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+            Sample(
+                name="test_sample",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/IBD/Control_rep3.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+            Sample(
+                name="test_sample",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/IBD/CoCl2_rep1.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+            Sample(
+                name="test_sample",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/IBD/CoCl2_rep2.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+            Sample(
+                name="test_sample",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/IBD/Oxy_rep1.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+            Sample(
+                name="test_sample",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/IBD/Oxy_rep2.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+            Sample(
+                name="test_sample",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/IBD/Oxy_rep3.fastq.gz",
+                        ),
+                    ),
+                ],
+            )
+        ],
+        "run_name": "Inflammatory Bowel Disease",
+    },
+)
