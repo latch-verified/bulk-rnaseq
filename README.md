@@ -29,7 +29,7 @@ Latch Verified
 </p>
 
 <h3 align="center">
-  <a href="https://console.latch.bio/explore/65992/info">Hosted Interface</a>
+  <a href="https://console.latch.bio/explore/66156/info">Hosted Interface</a>
   <span> · </span>
   <a href="https://docs.latch.bio">SDK Documentation</a>
   <span> · </span>
