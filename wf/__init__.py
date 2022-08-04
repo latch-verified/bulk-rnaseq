@@ -871,7 +871,7 @@ def rnaseq(
             name: LatchBio
             email:
             github:
-        repository: github.com/latchbio/rnaseq
+        repository: github.com/latch-verified/bulk-rnaseq
         license:
             id: MIT
         flow:
