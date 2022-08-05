@@ -1058,7 +1058,7 @@ LaunchPlan(
     {
         "samples": [
             Sample(
-                name="test_sample",
+                name="Control rep 1",
                 strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
@@ -1069,7 +1069,7 @@ LaunchPlan(
                 ],
             ),
             Sample(
-                name="test_sample",
+                name="Control rep 2",
                 strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
@@ -1080,7 +1080,7 @@ LaunchPlan(
                 ],
             ),
             Sample(
-                name="test_sample",
+                name="Control rep 3",
                 strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
@@ -1091,7 +1091,7 @@ LaunchPlan(
                 ],
             ),
             Sample(
-                name="test_sample",
+                name="CoCl2 rep 1",
                 strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
@@ -1102,7 +1102,7 @@ LaunchPlan(
                 ],
             ),
             Sample(
-                name="test_sample",
+                name="CoCl2 rep 2",
                 strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
@@ -1113,7 +1113,7 @@ LaunchPlan(
                 ],
             ),
             Sample(
-                name="test_sample",
+                name="Oxy rep 1",
                 strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
@@ -1124,7 +1124,7 @@ LaunchPlan(
                 ],
             ),
             Sample(
-                name="test_sample",
+                name="Oxy rep 2",
                 strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
@@ -1135,7 +1135,7 @@ LaunchPlan(
                 ],
             ),
             Sample(
-                name="test_sample",
+                name="Oxy rep 3",
                 strandedness=Strandedness.auto,
                 replicates=[
                     SingleEndReads(
