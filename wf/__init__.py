@@ -10,18 +10,16 @@ from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple, Union
+from typing import Annotated, Iterable, List, Optional, Tuple, Union
 
 import lgenome
 from dataclasses_json import dataclass_json
 from flytekit import task
+from flytekit.core.annotation import FlyteAnnotation
+from flytekit.core.launch_plan import reference_launch_plan
 from flytekitplugins.pod import Pod
-from kubernetes.client.models import (
-    V1Container,
-    V1PodSpec,
-    V1ResourceRequirements,
-    V1Toleration,
-)
+from kubernetes.client.models import (V1Container, V1PodSpec,
+                                      V1ResourceRequirements, V1Toleration)
 from latch import map_task, message, small_task, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
@@ -620,8 +618,10 @@ def count_matrix_and_multiqc(
     output_directory: Optional[LatchDir],
     latch_genome: LatchGenome,
     custom_gtf: Optional[LatchFile] = None,
-) -> List[LatchFile]:
-    output_files = []
+) -> (Optional[LatchFile], Optional[LatchFile]):
+
+    count_matrix_file = None
+    multiqc_report_file = None
 
     Path("/root/inputs").mkdir(parents=True)
     paths = [
@@ -667,7 +667,6 @@ def count_matrix_and_multiqc(
             str(raw_count_table_path),
             remote("Quantification (salmon)/counts.tsv"),
         )
-        output_files.append(count_matrix_file)
     else:
         message(
             "warning",
@@ -683,7 +682,6 @@ def count_matrix_and_multiqc(
             "/root/multiqc_report.html",
             remote("multiqc_report.html"),
         )
-        output_files.append(multiqc_report_file)
     except subprocess.CalledProcessError as e:
         print(f"Error occurred while generating MultiQC report -> {e}")
         message(
@@ -694,12 +692,79 @@ def count_matrix_and_multiqc(
             },
         )
 
-    return output_files
+    return count_matrix_file, multiqc_report_file
 
 
 class AlignmentTools(Enum):
     star_salmon = "Traditional Alignment + Quantification"
     salmon = "Selective Alignment + Quantification"
+
+
+@reference_launch_plan(
+    project="1",
+    domain="development",
+    name="wf.__init__.deseq2_wf",
+    version="1.3.16-61b902",
+)
+def deseq2_wf(
+    report_name: str,
+    count_table_source: str = "single",
+    raw_count_table: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "_tmp_hack_deseq2": "counts_table",
+                    "rules": [
+                        {
+                            "regex": r".*\.(csv|tsv|xlsx)$",
+                            "message": "Expected a CSV, TSV, or XLSX file",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
+    raw_count_tables: List[LatchFile] = [],
+    count_table_gene_id_column: str = "gene_id",
+    output_location_type: str = "default",
+    output_location: Optional[LatchDir] = None,
+    conditions_source: str = "manual",
+    manual_conditions: Annotated[
+        List[List[str]],
+        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
+    ] = [],
+    conditions_table: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "_tmp_hack_deseq2": "design_matrix",
+                    "rules": [
+                        {
+                            "regex": r".*\.(csv|tsv|xlsx)$",
+                            "message": "Expected a CSV, TSV, or XLSX file",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
+    design_matrix_sample_id_column: Optional[
+        Annotated[str, FlyteAnnotation({"_tmp_hack_deseq2": "design_id_column"})]
+    ] = None,
+    design_formula: Annotated[
+        List[List[str]],
+        FlyteAnnotation(
+            {
+                "_tmp_hack_deseq2": "design_formula",
+                "_tmp_hack_deseq2_allow_clustering": True,
+            }
+        ),
+    ] = [],
+    number_of_genes_to_plot: int = 30,
+) -> LatchDir:
+    ...
 
 
 @workflow
@@ -719,7 +784,7 @@ def rnaseq(
     salmon_index: Optional[LatchFile] = None,
     save_indices: bool = False,
     custom_output_dir: Optional[LatchDir] = None,
-) -> List[LatchFile]:
+):
     """Perform alignment and quantification on Bulk RNA-Sequencing reads
 
     Bulk RNA-Seq (Alignment and Quantification)
@@ -728,16 +793,16 @@ def rnaseq(
     This workflow will produce gene and transcript counts from bulk RNA-seq
     sample reads.
 
-    ## Workflow Anatomy
+    # Workflow Anatomy
 
-    #### Disclaimer
+    # Disclaimer
 
     This workflow assumes that your sequencing reads were derived from *short-read
     cDNA seqeuncing* ( as opposed to long-read cDNA/direct RNA sequencing). If in
     doubt, you can likely make the same assumption, as it is by far the most common
     form of "RNA-sequencing".
 
-    ### Brief Summary of RNA-seq
+    # Brief Summary of RNA-seq
 
     This workflow ingests short-read sequencing files (in FastQ format) that came
     from the following sequence of steps[^1]:
@@ -758,7 +823,7 @@ def rnaseq(
     that can convert these files to FastQ format, which you will need before you can
     proceed).
 
-    ### Quality Control
+    # Quality Control
 
     As a pre-processing step, its important to check the quality of your sequencing
     files. FastQC is the industry staple for generating a report of useful summary
@@ -776,7 +841,7 @@ def rnaseq(
     reader to this
     [tutorial](https://hbctraining.github.io/Intro-to-rnaseq-hpc-salmon/lessons/qc_fastqc_assessment.html).
 
-    #### Trimming
+    # Trimming
 
     Short-read sequencing introduces adapters, small sequences attached to the 5'
     and 3' end of cDNA fragments, that are present as artifacts in our FastQ files
@@ -787,7 +852,7 @@ def rnaseq(
     trusted by researchers we work with out of UCSF and Stanford, until we are able
     to do so ourself.
 
-    ### Alignment
+    # Alignment
 
     Alignment is the process of assigning a sequencing read a location on a
     reference genome or transcriptome. It is the most computationally expensive step
@@ -808,7 +873,7 @@ def rnaseq(
     [salmon](https://github.com/COMBINE-lab/salmon) to implement selective
     alignment.
 
-    ### Gene Count Quantification
+    # Gene Count Quantification
 
     Selective Alignment produces estimations of transcript abundances. Recall that
     that there can be multiple transcripts for any single gene. It is desirable to
@@ -1043,12 +1108,27 @@ def rnaseq(
         save_indices=save_indices,
     )
     outputs = map_task(trimgalore_salmon)(input=inputs)
-    return count_matrix_and_multiqc(
+    count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
         latch_genome=latch_genome,
         custom_gtf=custom_gtf,
+    )
+    deseq2_wf(
+        report_name=run_name,
+        count_table_source="single",
+        raw_count_table=count_matrix_file,
+        raw_count_tables=[],
+        count_table_gene_id_column="gene_id",
+        output_location_type="default",
+        output_location=custom_output_dir,
+        conditions_source="manual",
+        manual_conditions=[],
+        conditions_table=None,
+        design_matrix_sample_id_column=None,
+        design_formula=[],
+        number_of_genes_to_plot=30,
     )
 
 

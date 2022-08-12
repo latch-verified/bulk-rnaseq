@@ -37,7 +37,10 @@ RUN curl -s https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.
 
 COPY gentrome.sh /root/gentrome.sh
 
-RUN python3 -m pip install --upgrade multiqc matplotlib numpy scipy lgenome latch
+RUN python3 -m pip install --upgrade multiqc matplotlib numpy scipy lgenome
+
+# Pathway
+RUN python3 -m pip install --upgrade latch
 COPY wf/ /root/wf
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag
