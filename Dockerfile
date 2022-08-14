@@ -39,8 +39,7 @@ COPY gentrome.sh /root/gentrome.sh
 
 RUN python3 -m pip install --upgrade multiqc matplotlib numpy scipy lgenome
 
-# Pathway
-RUN python3 -m pip install --upgrade latch
+RUN python3 -m pip install latch==1.13.3
 COPY wf/ /root/wf
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag
