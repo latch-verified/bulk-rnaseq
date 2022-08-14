@@ -701,10 +701,10 @@ class AlignmentTools(Enum):
 
 
 @reference_launch_plan(
-    project="1",
+    project="4107",
     domain="development",
     name="wf.__init__.deseq2_wf",
-    version="1.3.16-61b902",
+    version="1.3.17-3190fb",
 )
 def deseq2_wf(
     report_name: str,
@@ -763,6 +763,21 @@ def deseq2_wf(
         ),
     ] = [],
     number_of_genes_to_plot: int = 30,
+) -> LatchDir:
+    ...
+
+
+@reference_launch_plan(
+    project="1",
+    domain="development",
+    name="wf.__init__.gene_ontology_pathway_analysis",
+    version="",
+)
+def gene_ontology_pathway_analysis(
+    contrast_csv: LatchFile,
+    report_name: str,
+    number_of_pathways: int = 20,
+    output_location: LatchDir = LatchDir("latch:///Pathway Analysis/"),
 ) -> LatchDir:
     ...
 
@@ -915,6 +930,17 @@ def rnaseq(
 
             - params:
                 - samples
+        - section: Sample Conditions for Differential Expression Analysis (Control vs Treatment, etc.)
+          flow:
+            - text: >-
+                  You can (optionally) group samples into condition groups so
+                  that downstream differential expression can be run on the
+                  resulting sample transcript counts. For example, labeling a
+                  subset of your samples as "Treatment" and another subset as
+                  "Control" will yield a list of transcripts/genes that are
+                  statistically different between the two groups.
+            - params:
+                - manual_conditions
         - section: Alignment and Quantification
           flow:
             - text: >-
@@ -989,6 +1015,11 @@ def rnaseq(
             batch_table_column: true
             _tmp:
                 custom_ingestion: auto
+
+        manual_conditions:
+
+          __metadata__:
+            display_name: Apply conditions to your samples
 
         alignment_quantification_tools:
 
