@@ -792,6 +792,10 @@ def rnaseq(
     run_name: str,
     latch_genome: LatchGenome,
     bams: List[List[LatchFile]],
+    manual_conditions: Annotated[
+        List[List[str]],
+        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
+    ] = [],
     custom_gtf: Optional[LatchFile] = None,
     custom_ref_genome: Optional[LatchFile] = None,
     custom_ref_trans: Optional[LatchFile] = None,
@@ -1019,7 +1023,7 @@ def rnaseq(
         manual_conditions:
 
           __metadata__:
-            display_name: Apply conditions to your samples
+            display_name: Apply conditions to your samples:
 
         alignment_quantification_tools:
 
@@ -1155,7 +1159,7 @@ def rnaseq(
         output_location_type="default",
         output_location=custom_output_dir,
         conditions_source="manual",
-        manual_conditions=[],
+        manual_conditions=manual_conditions,
         conditions_table=None,
         design_matrix_sample_id_column=None,
         design_formula=[],
