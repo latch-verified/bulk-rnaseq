@@ -767,21 +767,6 @@ def deseq2_wf(
     ...
 
 
-@reference_launch_plan(
-    project="1",
-    domain="development",
-    name="wf.__init__.gene_ontology_pathway_analysis",
-    version="",
-)
-def gene_ontology_pathway_analysis(
-    contrast_csv: LatchFile,
-    report_name: str,
-    number_of_pathways: int = 20,
-    output_location: LatchDir = LatchDir("latch:///Pathway Analysis/"),
-) -> LatchDir:
-    ...
-
-
 @workflow
 def rnaseq(
     samples: List[Sample],
