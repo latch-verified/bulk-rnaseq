@@ -704,7 +704,7 @@ class AlignmentTools(Enum):
     project="4107",
     domain="development",
     name="wf.__init__.deseq2_wf",
-    version="1.3.17-3190fb",
+    version="1.3.18-7a4e16",
 )
 def deseq2_wf(
     report_name: str,
