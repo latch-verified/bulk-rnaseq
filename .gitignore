@@ -1,2 +1,5 @@
 .*sw*
 __pycache__
+
+.logs
+.latch_report.tar.gz
