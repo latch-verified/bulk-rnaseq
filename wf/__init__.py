@@ -166,7 +166,6 @@ class TrimgaloreSalmonInput:
     run_name: str
     base_remote_output_dir: str
     latch_genome: str
-    bams: List[List[LatchFile]]
     custom_names: List[str]
     custom_files: List[LatchFile]
     clip_r1: Optional[int] = None
@@ -202,7 +201,6 @@ def prepare_trimgalore_salmon_inputs(
     samples: List[Sample],
     run_name: str,
     latch_genome: LatchGenome,
-    bams: List[List[LatchFile]],
     save_indices: bool,
     clip_r1: Optional[int] = None,
     clip_r2: Optional[int] = None,
@@ -240,7 +238,6 @@ def prepare_trimgalore_salmon_inputs(
             three_prime_clip_r2=three_prime_clip_r2,
             base_remote_output_dir=_remote_output_dir(custom_output_dir),
             latch_genome=latch_genome.name,
-            bams=bams,
             custom_names=custom_names,
             custom_files=custom_files,
             save_indices=save_indices,
@@ -777,7 +774,6 @@ def rnaseq(
     output_location_fork: str,
     run_name: str,
     latch_genome: LatchGenome,
-    bams: List[List[LatchFile]],
     conditions_source: str = "none",
     manual_conditions: Annotated[
         List[List[str]],
@@ -1186,7 +1182,6 @@ def rnaseq(
         three_prime_clip_r2=None,
         custom_output_dir=custom_output_dir,
         latch_genome=latch_genome,
-        bams=bams,
         custom_gtf=custom_gtf,
         custom_ref_genome=custom_ref_genome,
         custom_ref_trans=custom_ref_trans,
