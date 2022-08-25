@@ -777,6 +777,7 @@ def rnaseq(
     run_name: str,
     latch_genome: LatchGenome,
     bams: List[List[LatchFile]],
+    conditions_source: str = "manual",
     manual_conditions: Annotated[
         List[List[str]],
         FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
@@ -928,8 +929,26 @@ def rnaseq(
                   subset of your samples as "Treatment" and another subset as
                   "Control" will yield a list of transcripts/genes that are
                   statistically different between the two groups.
-            - params:
-                - manual_conditions
+            - fork: conditions_source
+              flows:
+                manual:
+                    display_name: Manual Input
+                    flow:
+                    - params:
+                        - manual_conditions
+                table:
+                    display_name: File
+                    _tmp_unwrap_optionals:
+                        - conditions_table
+                        - design_matrix_sample_id_column
+                        - design_formula
+                    flow:
+                    - text: >-
+                        Table with sample IDs and experimental conditions
+                    - params:
+                        - conditions_table
+                        - design_matrix_sample_id_column
+                        - design_formula
         - section: Alignment and Quantification
           flow:
             - text: >-
@@ -1143,7 +1162,7 @@ def rnaseq(
         count_table_gene_id_column="gene_id",
         output_location_type="default",
         output_location=custom_output_dir,
-        conditions_source="manual",
+        conditions_source=conditions_source,
         manual_conditions=manual_conditions,
         conditions_table=None,
         design_matrix_sample_id_column=None,
