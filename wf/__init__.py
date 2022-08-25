@@ -782,6 +782,34 @@ def rnaseq(
         List[List[str]],
         FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
     ] = [],
+    conditions_table: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "_tmp_hack_deseq2": "design_matrix",
+                    "rules": [
+                        {
+                            "regex": r".*\.(csv|tsv|xlsx)$",
+                            "message": "Expected a CSV, TSV, or XLSX file",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
+    design_matrix_sample_id_column: Optional[
+        Annotated[str, FlyteAnnotation({"_tmp_hack_deseq2": "design_id_column"})]
+    ] = None,
+    design_formula: Annotated[
+        List[List[str]],
+        FlyteAnnotation(
+            {
+                "_tmp_hack_deseq2": "design_formula",
+                "_tmp_hack_deseq2_allow_clustering": True,
+            }
+        ),
+    ] = [],
     custom_gtf: Optional[LatchFile] = None,
     custom_ref_genome: Optional[LatchFile] = None,
     custom_ref_trans: Optional[LatchFile] = None,
@@ -1029,6 +1057,24 @@ def rnaseq(
           __metadata__:
             display_name: Apply conditions to your samples:
 
+        conditions_table:
+
+          __metadata__:
+            display_name: Design Matrix
+            appearance:
+                batch_table_column: true
+
+        design_matrix_sample_id_column:
+
+            __metadata__:
+              display_name: Sample ID Column
+
+        design_formula:
+
+            __metadata__:
+              display_name: Design Formula
+
+
         alignment_quantification_tools:
 
           __metadata__:
@@ -1069,12 +1115,6 @@ def rnaseq(
             display_name: Annotation File
             appearance:
                 detail: (.gtf)
-
-        bams:
-          foobar
-
-          __metadata__:
-            display_name: bams
 
         custom_ref_trans:
           If not provided the workflow will generate from the Annotation File
@@ -1164,9 +1204,9 @@ def rnaseq(
         output_location=custom_output_dir,
         conditions_source=conditions_source,
         manual_conditions=manual_conditions,
-        conditions_table=None,
-        design_matrix_sample_id_column=None,
-        design_formula=[],
+        conditions_table=conditions_table,
+        design_matrix_sample_id_column=design_matrix_sample_id_column,
+        design_formula=design_formula,
         number_of_genes_to_plot=30,
     )
 
