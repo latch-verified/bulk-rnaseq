@@ -21,6 +21,7 @@ from flytekitplugins.pod import Pod
 from kubernetes.client.models import (V1Container, V1PodSpec,
                                       V1ResourceRequirements, V1Toleration)
 from latch import map_task, message, small_task, workflow
+from latch.resources.conditional import create_conditional_section
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
 
@@ -777,7 +778,7 @@ def rnaseq(
     run_name: str,
     latch_genome: LatchGenome,
     bams: List[List[LatchFile]],
-    conditions_source: str = "manual",
+    conditions_source: str = "none",
     manual_conditions: Annotated[
         List[List[str]],
         FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
@@ -959,6 +960,12 @@ def rnaseq(
                   statistically different between the two groups.
             - fork: conditions_source
               flows:
+                none:
+                    display_name: No Differential Expression
+                    flow:
+                    - text: >-
+                          Select "Manual Input" or "File" to construct your
+                              condition groups.
                 manual:
                     display_name: Manual Input
                     flow:
