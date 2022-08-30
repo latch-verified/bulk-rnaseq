@@ -16,12 +16,10 @@ import lgenome
 from dataclasses_json import dataclass_json
 from flytekit import task
 from flytekit.core.annotation import FlyteAnnotation
-from flytekit.core.launch_plan import reference_launch_plan
 from flytekitplugins.pod import Pod
 from kubernetes.client.models import (V1Container, V1PodSpec,
                                       V1ResourceRequirements, V1Toleration)
-from latch import map_task, message, small_task, workflow
-from latch.resources.conditional import create_conditional_section
+from latch import map_task, message, small_task, workflow, workflow_reference
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
 
@@ -698,9 +696,7 @@ class AlignmentTools(Enum):
     salmon = "Selective Alignment + Quantification"
 
 
-@reference_launch_plan(
-    project="4107",
-    domain="development",
+@workflow_reference(
     name="wf.__init__.deseq2_wf",
     version="1.3.18-7a4e16",
 )
