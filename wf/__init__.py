@@ -461,22 +461,22 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         if isinstance(rep, PairedEndReads):
             os.remove(rep.r2.path)
 
-    returncode, stdout = _capture_output(
-        [
-            "salmon",
-            "quant",
-            "-i",
-            str(local_index),
-            "-l",
-            "A",
-            *reads,
-            "--threads",
-            str(96),
-            "--validateMappings",
-            "-o",
-            local(),
-        ]
-    )
+    quant_cmd = [
+        "salmon",
+        "quant",
+        "-i",
+        str(local_index),
+        "-l",
+        "A",
+        *reads,
+        "--threads",
+        str(96),
+        "--validateMappings",
+        "-o",
+        local(),
+    ]
+    quant_cmd += ["--writeMappings", local(f"{slugify(input.sample_name)}.bam")]
+    returncode, stdout = _capture_output(quant_cmd)
 
     # Delete unneeded files to free space
     for path in merged:
@@ -582,7 +582,6 @@ def count_matrix_and_multiqc(
     run_name: str,
     ts_outputs: List[TrimgaloreSalmonOutput],
     output_directory: Optional[LatchDir],
-    latch_genome: LatchGenome,
     custom_gtf: Optional[LatchFile] = None,
 ) -> (Optional[LatchFile], Optional[LatchFile]):
 
@@ -1094,7 +1093,6 @@ def rnaseq(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
-        latch_genome=latch_genome,
         custom_gtf=custom_gtf,
     )
     deseq2_wf(
