@@ -16,7 +16,8 @@ from typing import Annotated, Iterable, List, Optional, Tuple, Union
 import lgenome
 from dataclasses_json import dataclass_json
 from flytekit.core.annotation import FlyteAnnotation
-from latch import large_task, map_task, medium_task, message, workflow
+from latch import (large_task, map_task, medium_task, message, small_task,
+                   workflow)
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
 from latch.verified import deseq2_wf
@@ -146,11 +147,6 @@ class TrimgaloreSalmonInput:
     clip_r2: Optional[int] = None
     three_prime_clip_r1: Optional[int] = None
     three_prime_clip_r2: Optional[int] = None
-    # custom_gtf: Optional[LatchFile] = None
-    # custom_ref_genome: Optional[LatchFile] = None
-    # custom_ref_trans: Optional[LatchFile] = None
-    # star_index: Optional[LatchFile] = None
-    # custom_salmon_index: Optional[LatchFile] = None
     save_indices: bool = False
 
 
@@ -161,8 +157,6 @@ class TrimgaloreSalmonOutput:
     passed_tximport: bool
     sample_name: str
     salmon_output: LatchDir
-    # quant: LatchFile
-    # genome_abundance: LatchFile
     trimgalore_reports: List[LatchFile]
 
 
@@ -170,7 +164,7 @@ def slugify(value: str) -> str:
     return value.replace(" ", "_")
 
 
-@medium_task
+@small_task
 def prepare_trimgalore_salmon_inputs(
     samples: List[Sample],
     run_name: str,
@@ -583,7 +577,7 @@ _SALMON_ALERT_PATTERN = re.compile(r"\[(warning|error)\] (.+?)(?:\[\d{4}|$)", re
 _COUNT_TABLE_GENE_ID_COLUMN = "gene_id"
 
 
-@small_task
+@medium_task
 def count_matrix_and_multiqc(
     run_name: str,
     ts_outputs: List[TrimgaloreSalmonOutput],
