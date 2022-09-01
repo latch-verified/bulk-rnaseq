@@ -1,6 +1,7 @@
 """latch/rnaseq"""
 
 import csv
+import functools
 import os
 import re
 import shutil
@@ -23,6 +24,8 @@ from latch import map_task, message, small_task, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
 from latch.verified import deseq2_wf
+
+print = functools.partial(print, flush=True)
 
 
 def _capture_output(command: List[str]) -> Tuple[int, str]:
