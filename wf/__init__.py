@@ -1,6 +1,7 @@
 """latch/rnaseq"""
 
 import csv
+import functools
 import os
 import re
 import shutil
@@ -10,21 +11,21 @@ from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple, Union
+from typing import Annotated, Iterable, List, Optional, Tuple, Union
 
 import lgenome
 from dataclasses_json import dataclass_json
 from flytekit import task
+from flytekit.core.annotation import FlyteAnnotation
 from flytekitplugins.pod import Pod
-from kubernetes.client.models import (
-    V1Container,
-    V1PodSpec,
-    V1ResourceRequirements,
-    V1Toleration,
-)
+from kubernetes.client.models import (V1Container, V1PodSpec,
+                                      V1ResourceRequirements, V1Toleration)
 from latch import map_task, message, small_task, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
+from latch.verified import deseq2_wf
+
+print = functools.partial(print, flush=True)
 
 
 def _capture_output(command: List[str]) -> Tuple[int, str]:
@@ -167,7 +168,6 @@ class TrimgaloreSalmonInput:
     run_name: str
     base_remote_output_dir: str
     latch_genome: str
-    bams: List[List[LatchFile]]
     custom_names: List[str]
     custom_files: List[LatchFile]
     clip_r1: Optional[int] = None
@@ -203,7 +203,6 @@ def prepare_trimgalore_salmon_inputs(
     samples: List[Sample],
     run_name: str,
     latch_genome: LatchGenome,
-    bams: List[List[LatchFile]],
     save_indices: bool,
     clip_r1: Optional[int] = None,
     clip_r2: Optional[int] = None,
@@ -241,7 +240,6 @@ def prepare_trimgalore_salmon_inputs(
             three_prime_clip_r2=three_prime_clip_r2,
             base_remote_output_dir=_remote_output_dir(custom_output_dir),
             latch_genome=latch_genome.name,
-            bams=bams,
             custom_names=custom_names,
             custom_files=custom_files,
             save_indices=save_indices,
@@ -620,8 +618,10 @@ def count_matrix_and_multiqc(
     output_directory: Optional[LatchDir],
     latch_genome: LatchGenome,
     custom_gtf: Optional[LatchFile] = None,
-) -> List[LatchFile]:
-    output_files = []
+) -> (Optional[LatchFile], Optional[LatchFile]):
+
+    count_matrix_file = None
+    multiqc_report_file = None
 
     Path("/root/inputs").mkdir(parents=True)
     paths = [
@@ -667,7 +667,6 @@ def count_matrix_and_multiqc(
             str(raw_count_table_path),
             remote("Quantification (salmon)/counts.tsv"),
         )
-        output_files.append(count_matrix_file)
     else:
         message(
             "warning",
@@ -683,7 +682,6 @@ def count_matrix_and_multiqc(
             "/root/multiqc_report.html",
             remote("multiqc_report.html"),
         )
-        output_files.append(multiqc_report_file)
     except subprocess.CalledProcessError as e:
         print(f"Error occurred while generating MultiQC report -> {e}")
         message(
@@ -694,7 +692,7 @@ def count_matrix_and_multiqc(
             },
         )
 
-    return output_files
+    return count_matrix_file, multiqc_report_file
 
 
 class AlignmentTools(Enum):
@@ -711,7 +709,39 @@ def rnaseq(
     output_location_fork: str,
     run_name: str,
     latch_genome: LatchGenome,
-    bams: List[List[LatchFile]],
+    conditions_source: str = "none",
+    manual_conditions: Annotated[
+        List[List[str]],
+        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
+    ] = [],
+    conditions_table: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "_tmp_hack_deseq2": "design_matrix",
+                    "rules": [
+                        {
+                            "regex": r".*\.(csv|tsv|xlsx)$",
+                            "message": "Expected a CSV, TSV, or XLSX file",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
+    design_matrix_sample_id_column: Optional[
+        Annotated[str, FlyteAnnotation({"_tmp_hack_deseq2": "design_id_column"})]
+    ] = None,
+    design_formula: Annotated[
+        List[List[str]],
+        FlyteAnnotation(
+            {
+                "_tmp_hack_deseq2": "design_formula",
+                "_tmp_hack_deseq2_allow_clustering": True,
+            }
+        ),
+    ] = [],
     custom_gtf: Optional[LatchFile] = None,
     custom_ref_genome: Optional[LatchFile] = None,
     custom_ref_trans: Optional[LatchFile] = None,
@@ -719,7 +749,7 @@ def rnaseq(
     salmon_index: Optional[LatchFile] = None,
     save_indices: bool = False,
     custom_output_dir: Optional[LatchDir] = None,
-) -> List[LatchFile]:
+):
     """Perform alignment and quantification on Bulk RNA-Sequencing reads
 
     Bulk RNA-Seq (Alignment and Quantification)
@@ -728,16 +758,16 @@ def rnaseq(
     This workflow will produce gene and transcript counts from bulk RNA-seq
     sample reads.
 
-    ## Workflow Anatomy
+    # Workflow Anatomy
 
-    #### Disclaimer
+    # Disclaimer
 
     This workflow assumes that your sequencing reads were derived from *short-read
     cDNA seqeuncing* ( as opposed to long-read cDNA/direct RNA sequencing). If in
     doubt, you can likely make the same assumption, as it is by far the most common
     form of "RNA-sequencing".
 
-    ### Brief Summary of RNA-seq
+    # Brief Summary of RNA-seq
 
     This workflow ingests short-read sequencing files (in FastQ format) that came
     from the following sequence of steps[^1]:
@@ -758,7 +788,7 @@ def rnaseq(
     that can convert these files to FastQ format, which you will need before you can
     proceed).
 
-    ### Quality Control
+    # Quality Control
 
     As a pre-processing step, its important to check the quality of your sequencing
     files. FastQC is the industry staple for generating a report of useful summary
@@ -776,7 +806,7 @@ def rnaseq(
     reader to this
     [tutorial](https://hbctraining.github.io/Intro-to-rnaseq-hpc-salmon/lessons/qc_fastqc_assessment.html).
 
-    #### Trimming
+    # Trimming
 
     Short-read sequencing introduces adapters, small sequences attached to the 5'
     and 3' end of cDNA fragments, that are present as artifacts in our FastQ files
@@ -787,7 +817,7 @@ def rnaseq(
     trusted by researchers we work with out of UCSF and Stanford, until we are able
     to do so ourself.
 
-    ### Alignment
+    # Alignment
 
     Alignment is the process of assigning a sequencing read a location on a
     reference genome or transcriptome. It is the most computationally expensive step
@@ -808,7 +838,7 @@ def rnaseq(
     [salmon](https://github.com/COMBINE-lab/salmon) to implement selective
     alignment.
 
-    ### Gene Count Quantification
+    # Gene Count Quantification
 
     Selective Alignment produces estimations of transcript abundances. Recall that
     that there can be multiple transcripts for any single gene. It is desirable to
@@ -850,6 +880,41 @@ def rnaseq(
 
             - params:
                 - samples
+        - section: Sample Conditions for Differential Expression Analysis (Control vs Treatment, etc.)
+          flow:
+            - text: >-
+                  You can (optionally) group samples into condition groups so
+                  that downstream differential expression can be run on the
+                  resulting sample transcript counts. For example, labeling a
+                  subset of your samples as "Treatment" and another subset as
+                  "Control" will yield a list of transcripts/genes that are
+                  statistically different between the two groups.
+            - fork: conditions_source
+              flows:
+                none:
+                    display_name: No Differential Expression
+                    flow:
+                    - text: >-
+                          Select "Manual Input" or "File" to construct your
+                              condition groups.
+                manual:
+                    display_name: Manual Input
+                    flow:
+                    - params:
+                        - manual_conditions
+                table:
+                    display_name: File
+                    _tmp_unwrap_optionals:
+                        - conditions_table
+                        - design_matrix_sample_id_column
+                        - design_formula
+                    flow:
+                    - text: >-
+                        Table with sample IDs and experimental conditions
+                    - params:
+                        - conditions_table
+                        - design_matrix_sample_id_column
+                        - design_formula
         - section: Alignment and Quantification
           flow:
             - text: >-
@@ -925,6 +990,29 @@ def rnaseq(
             _tmp:
                 custom_ingestion: auto
 
+        manual_conditions:
+
+          __metadata__:
+            display_name: Apply conditions to your samples:
+
+        conditions_table:
+
+          __metadata__:
+            display_name: Design Matrix
+            appearance:
+                batch_table_column: true
+
+        design_matrix_sample_id_column:
+
+            __metadata__:
+              display_name: Sample ID Column
+
+        design_formula:
+
+            __metadata__:
+              display_name: Design Formula
+
+
         alignment_quantification_tools:
 
           __metadata__:
@@ -965,12 +1053,6 @@ def rnaseq(
             display_name: Annotation File
             appearance:
                 detail: (.gtf)
-
-        bams:
-          foobar
-
-          __metadata__:
-            display_name: bams
 
         custom_ref_trans:
           If not provided the workflow will generate from the Annotation File
@@ -1035,7 +1117,6 @@ def rnaseq(
         three_prime_clip_r2=None,
         custom_output_dir=custom_output_dir,
         latch_genome=latch_genome,
-        bams=bams,
         custom_gtf=custom_gtf,
         custom_ref_genome=custom_ref_genome,
         custom_ref_trans=custom_ref_trans,
@@ -1043,12 +1124,27 @@ def rnaseq(
         save_indices=save_indices,
     )
     outputs = map_task(trimgalore_salmon)(input=inputs)
-    return count_matrix_and_multiqc(
+    count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
         latch_genome=latch_genome,
         custom_gtf=custom_gtf,
+    )
+    deseq2_wf(
+        report_name=run_name,
+        count_table_source="single",
+        raw_count_table=count_matrix_file,
+        raw_count_tables=[],
+        count_table_gene_id_column="gene_id",
+        output_location_type="default",
+        output_location=custom_output_dir,
+        conditions_source=conditions_source,
+        manual_conditions=manual_conditions,
+        conditions_table=conditions_table,
+        design_matrix_sample_id_column=design_matrix_sample_id_column,
+        design_formula=design_formula,
+        number_of_genes_to_plot=30,
     )
 
 
