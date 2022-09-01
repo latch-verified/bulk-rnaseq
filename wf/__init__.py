@@ -582,7 +582,6 @@ def count_matrix_and_multiqc(
     run_name: str,
     ts_outputs: List[TrimgaloreSalmonOutput],
     output_directory: Optional[LatchDir],
-    custom_gtf: Optional[LatchFile] = None,
 ) -> (Optional[LatchFile], Optional[LatchFile]):
 
     count_matrix_file = None
@@ -1093,7 +1092,6 @@ def rnaseq(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
-        custom_gtf=custom_gtf,
     )
     deseq2_wf(
         report_name=run_name,
