@@ -385,9 +385,8 @@ def local(suffix: Optional[str] = None) -> str:
     return salmon_path
 
 
-def remote(suffix: Optional[str] = None) -> str:
-    i = input
-    path = f"{i.base_remote_output_dir}{i.run_name}/Quantification (salmon)/{i.sample_name}/"
+def remote(input: TrimgaloreSalmonInput, suffix: Optional[str] = None) -> str:
+    path = f"{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
     if suffix is not None:
         path += suffix
     return path
@@ -395,12 +394,12 @@ def remote(suffix: Optional[str] = None) -> str:
 
 def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
     if "of fragments were shorter than the k" in alert_message:
-        # percent = float(alert_message.split("%")[0])
-        # min_read_size = int(alert_message.split(".")[-2].split(" ")[-1])
         return alert_message
     elif "Detected a *potential* strand bias" in alert_message:
         default = "salmon_quant/lib_format_counts.json"
-        return alert_message.replace(default, remote("lib_format_counts.json"))
+        return alert_message.replace(
+            default, remote(input, suffix="lib_format_counts.json")
+        )
     return alert_message
 
 
@@ -558,7 +557,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         passed_salmon=True,
         passed_tximport=True,
         sample_name=input.sample_name,
-        salmon_aux_output=LatchDir(local(), remote()),
+        salmon_aux_output=LatchDir(local(), remote(input)),
         salmon_quant_file=salmon_quant,
         gene_abundance_file=tximport_output_path,
         trimgalore_reports=trimgalore_reports,
