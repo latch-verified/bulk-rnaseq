@@ -592,7 +592,7 @@ def count_matrix_and_multiqc(
     count_matrix_file = None
     multiqc_report_file = None
 
-    REMOTE_PATH = f"{output_directory}{run_name}/"
+    REMOTE_PATH = f"latch:///{output_directory}{run_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     # Create combined count matrix
@@ -659,6 +659,83 @@ def count_matrix_and_multiqc(
         )
 
     return count_matrix_file, multiqc_report_file
+
+
+@medium_task
+def bam_to_junction(
+    run_name: str,
+    ts_outputs: List[TrimgaloreSalmonOutput],
+    output_directory: Optional[LatchDir],
+) -> LatchFile:
+
+    REMOTE_PATH = (
+        f"latch:///{output_directory}{run_name}/Alternative Splicing (LeafCutter)/"
+    )
+    """Remote path prefix for LatchFiles + LatchDirs"""
+
+    message(
+        "info",
+        {
+            "title": "Generating alternative splicing junction file from all samples",
+            "body": "\n".join(f"- {x.sample_name}" for x in ts_outputs),
+        },
+    )
+
+    def samtools_index(bam: Path):
+        run(
+            [
+                "samtools",
+                "index",
+                str(bam),
+            ]
+        )
+
+    def extract_junctions(bam: Path) -> Path:
+        junc_file = bam.parent / (bam.name + ".junc")
+        run(
+            [
+                "regtools",
+                "junctions",
+                "extract",
+                "-a",
+                "8",  # anchor length
+                "-m",
+                "50",  # minimum intron
+                "-M",
+                "500000",  # maximum intron
+                str(bam),
+                "-o",
+                junc_file,
+            ]
+        )
+        return junc_file
+
+    try:
+        junctions = []
+        for tso in ts_outputs:
+            print("Converting {tso.sample_name} BAM file to junction file.")
+            bam = Path(tso.salmon_bam_file.local_path).resolve()
+            samtools_index(bam)
+            junctions.append(extract_junctions(bam))
+    except subprocess.CalledProcessError as e:
+        print(f"Error occurred while generating combined junction file -> {e}")
+        message(
+            "error",
+            {
+                "title": "Unable to generate combined junction file",
+                "body": "See logs for more information",
+            },
+        )
+
+    combined_juncs = Path("/root/all_juncs.txt")
+    with open(combined_juncs, "w") as f:
+        for j in junctions:
+            f.write(j.read())
+
+    return LatchFile(
+        combined_juncs,
+        REMOTE_PATH + "all_juncs.txt",
+    )
 
 
 class AlignmentTools(Enum):
@@ -1091,6 +1168,11 @@ def rnaseq(
     )
     outputs = map_task(trimgalore_salmon)(input=inputs)
     count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
+        run_name=run_name,
+        ts_outputs=outputs,
+        output_directory=custom_output_dir,
+    )
+    combined_junctions = bam_to_junction(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
