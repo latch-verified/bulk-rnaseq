@@ -1120,6 +1120,27 @@ def rnaseq(
 
 LaunchPlan(
     rnaseq,
+    "Small Data - 10K Human Reads",
+    {
+        "samples": [
+            Sample(
+                name="Test",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/small-test/10k_reads_human.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+        ],
+        "run_name": "Small Test",
+    },
+)
+
+LaunchPlan(
+    rnaseq,
     "Test Data - CoCl2 vs Control (Knyazev, 2021)",
     {
         "samples": [
