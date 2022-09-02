@@ -171,7 +171,7 @@ def slugify(value: str) -> str:
 
 
 @small_task
-def prepare_trimgalore_salmon_inputs(
+def prepare_inputs(
     samples: List[Sample],
     run_name: str,
     latch_genome: LatchGenome,
@@ -486,31 +486,43 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
     ]
 
     bam_path = Path(f"/root/{slugify(input.sample_name)}.bam")
-    quant_cmd += ["--writeMappings", str(bam_path)]
+    quant_cmd += ["--writeMappings"]
 
-    returncode, stdout = _capture_output(quant_cmd)
+    str(bam_path)
+
+    try:
+        ps = subprocess.Popen(quant_cmd, stdout=subprocess.PIPE)
+        output = subprocess.check_output(
+            ("samtools", "view", "-b", "-o", bam_path), stdin=ps.stdout
+        )
+        ps.wait()
+    except subprocess.CalledProcessError as e:
+        returncode = e.returncode
+        stdout = e.output
+
+        identifier = f"sample {input.sample_name}"
+        errors = []
+        for alert_type, alert_message in re.findall(_SALMON_ALERT_PATTERN, stdout):
+            title = f"Salmon {alert_type} for {identifier}"
+            if alert_type == "warning":
+                message(
+                    "warning",
+                    {
+                        "title": title,
+                        "body": parse_salmon_warning(alert_message, input),
+                    },
+                )
+            else:
+                message("error", {"title": title, "body": alert_message})
+                errors.append(alert_message)
+
+        if returncode != 0:
+            deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
+            raise RuntimeError(deets)
 
     # Free space.
     for path in merged:
         os.remove(path)
-
-    # Add info messages too?
-    identifier = f"sample {input.sample_name}"
-    errors = []
-    for alert_type, alert_message in re.findall(_SALMON_ALERT_PATTERN, stdout):
-        title = f"Salmon {alert_type} for {identifier}"
-        if alert_type == "warning":
-            message(
-                "warning",
-                {"title": title, "body": parse_salmon_warning(alert_message, input)},
-            )
-        else:
-            message("error", {"title": title, "body": alert_message})
-            errors.append(alert_message)
-
-    if returncode != 0:
-        deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
-        raise RuntimeError(deets)
 
     # Also moves count files out of auxilliary directory.
     quant_path = f"/root/{slugify(input.sample_name)}_quant.sf"
@@ -681,6 +693,11 @@ def bam_to_junction(
         },
     )
 
+    def samtools_sort(bam: Path) -> Path:
+        sorted_path = bam.parent / ("sorted_" + bam.name)
+        run(["samtools", "sort", str(bam), "-o", sorted_path])
+        return sorted_path
+
     def samtools_index(bam: Path):
         run(
             [
@@ -705,7 +722,9 @@ def bam_to_junction(
                 "500000",  # maximum intron
                 str(bam),
                 "-o",
-                junc_file,
+                str(junc_file),
+                "-s",
+                str(0),
             ]
         )
         return junc_file
@@ -715,8 +734,9 @@ def bam_to_junction(
         for tso in ts_outputs:
             print("Converting {tso.sample_name} BAM file to junction file.")
             bam = Path(tso.salmon_bam_file.local_path).resolve()
-            samtools_index(bam)
-            junctions.append(extract_junctions(bam))
+            sorted_bam = samtools_sort(bam)
+            samtools_index(sorted_bam)
+            junctions.append(extract_junctions(sorted_bam))
     except subprocess.CalledProcessError as e:
         print(f"Error occurred while generating combined junction file -> {e}")
         message(
@@ -730,7 +750,8 @@ def bam_to_junction(
     combined_juncs = Path("/root/all_juncs.txt")
     with open(combined_juncs, "w") as f:
         for j in junctions:
-            f.write(j.read())
+            with open(j) as jf:
+                f.write(jf.read())
 
     return LatchFile(
         combined_juncs,
@@ -741,6 +762,11 @@ def bam_to_junction(
 class AlignmentTools(Enum):
     star_salmon = "Traditional Alignment + Quantification"
     salmon = "Selective Alignment + Quantification"
+
+
+@small_task
+def noop() -> None:
+    return None
 
 
 @workflow
@@ -1151,7 +1177,7 @@ def rnaseq(
           __metadata__:
             display_name: Custom Output Location
     """
-    inputs = prepare_trimgalore_salmon_inputs(
+    inputs = prepare_inputs(
         samples=samples,
         run_name=run_name,
         clip_r1=None,
