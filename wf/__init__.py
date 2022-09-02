@@ -249,7 +249,7 @@ def _concatenate_files(filepaths: Iterable[str], output_path: str) -> Path:
 
 def _remote_output_dir(custom_output_dir: Optional[LatchDir]) -> str:
     if custom_output_dir is None:
-        return "latch:///RNA-Seq Outputs/"
+        return "/RNA-Seq Outputs/"
     remote_path = custom_output_dir.remote_path
     assert remote_path is not None
     if remote_path[-1] != "/":
@@ -386,7 +386,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
     SALMON_DIR = "/root/salmon_quant/"
     """Default location for salmon outputs."""
 
-    REMOTE_PATH = f"{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
+    REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
