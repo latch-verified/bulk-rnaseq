@@ -165,7 +165,7 @@ class TrimgaloreSalmonOutput:
 
 
 def slugify(value: str) -> str:
-    return value.replace(" ", "_")
+    return value.lower().replace(" ", "_")
 
 
 @small_task
@@ -380,21 +380,22 @@ def _build_index(gentrome: Path) -> Path:
 
 @large_task
 def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
-    def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
-        if "of fragments were shorter than the k" in alert_message:
-            return alert_message
-        elif "Detected a *potential* strand bias" in alert_message:
-            default = "salmon_quant/lib_format_counts.json"
-            return alert_message.replace(
-                default, remote(input, suffix="lib_format_counts.json")
-            )
-        return alert_message
 
     SALMON_DIR = "/root/salmon_quant/"
     """Default location for salmon outputs."""
 
     REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
+
+    def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
+        if "of fragments were shorter than the k" in alert_message:
+            return alert_message
+        elif "Detected a *potential* strand bias" in alert_message:
+            default = "salmon_quant/lib_format_counts.json"
+            return alert_message.replace(
+                default, REMOTE_PATH + "lib_format_counts.json"
+            )
+        return alert_message
 
     outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
     trimmed_replicates = [x[1] for x in outputs]
@@ -550,9 +551,9 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         passed_tximport=True,
         sample_name=input.sample_name,
         salmon_aux_output=LatchDir(SALMON_DIR, REMOTE_PATH),
-        salmon_quant_file=LatchFile(salmon_quant, REMOTE_PATH / salmon_quant.name),
+        salmon_quant_file=LatchFile(salmon_quant, REMOTE_PATH + salmon_quant.name),
         gene_abundance_file=LatchFile(
-            tximport_output_path, REMOTE_PATH / tximport_output_path.name
+            tximport_output_path, REMOTE_PATH + tximport_output_path.name
         ),
         trimgalore_reports=trimgalore_reports,
     )
