@@ -222,7 +222,8 @@ def _merge_replicates(
     replicates: List[Replicate], sample_name: str
 ) -> Union[Tuple[Path], Tuple[Path, Path]]:
     local_r1_path = f"{slugify(sample_name)}_r1_merged.fq"
-    r1 = _concatenate_files((str(x.r1.path) for x in replicates), local_r1_path)
+    r1 = _concatenate_files((str(x.r1.path)
+                            for x in replicates), local_r1_path)
 
     if isinstance(replicates[0], SingleEndReads):
         return (r1,)
@@ -231,7 +232,8 @@ def _merge_replicates(
         raise RuntimeError("Not all technical replicates were paired end")
 
     local_r2_path = f"{slugify(sample_name)}_r2_merged.fq"
-    r2 = _concatenate_files((str(x.r2.path) for x in replicates), local_r2_path)
+    r2 = _concatenate_files((str(x.r2.path)
+                            for x in replicates), local_r2_path)
     return (r1, r2)
 
 
@@ -291,7 +293,7 @@ def do_trimgalore(
     # todo(rohankan): examine trimgalore for useful warnings and add them here
     if returncode != 0:
         stdout = stdout.rstrip()
-        stdout = stdout[stdout.rindex("\n") + 1 :]
+        stdout = stdout[stdout.rindex("\n") + 1:]
         assert reads.r1.remote_path is not None
         path_name = reads.r1.remote_path.split("/")[-1]
         identifier = f"sample {ts_input.sample_name}, replicate {path_name}"
@@ -396,7 +398,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
     REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
-    outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
+    outputs = [do_trimgalore(input, i, x)
+                             for i, x in enumerate(input.replicates)]
     trimmed_replicates = [x[1] for x in outputs]
     trimgalore_reports = [y for x in outputs for y in x[0]]
 
@@ -425,7 +428,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
 
         if not Path("salmon_index").is_dir():
             body = "The custom Salmon index provided must be a directory named 'salmon_index'"
-            message("error", {"title": "Invalid custom Salmon index", "body": body})
+            message(
+                "error", {"title": "Invalid custom Salmon index", "body": body})
             raise MalformedSalmonIndex(body)
 
         local_index = Path("salmon_index")
@@ -436,7 +440,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
                 "Both a custom reference genome and GTF file need to be provided "
                 "to build a local index for Salmon"
             )
-            message("error", {"title": "Unable to build local index", "body": body})
+            message(
+                "error", {"title": "Unable to build local index", "body": body})
             raise InsufficientCustomGenomeResources(body)
 
         ref_genome_path = _unzip_if_needed(custom_ref_genome.local_path)
@@ -446,7 +451,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
                 gtf_path = _unzip_if_needed(custom_gtf.local_path)
             ref_transcriptome = _build_transcriptome(ref_genome_path, gtf_path)
         else:
-            ref_transcriptome = _unzip_if_needed(custom_ref_transcriptome.local_path)
+            ref_transcriptome = _unzip_if_needed(
+                custom_ref_transcriptome.local_path)
 
         gentrome = _build_gentrome(ref_genome_path, ref_transcriptome)
         local_index = _build_index(gentrome)
@@ -499,7 +505,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         if alert_type == "warning":
             message(
                 "warning",
-                {"title": title, "body": parse_salmon_warning(alert_message, input)},
+                {"title": title, "body": parse_salmon_warning(
+                    alert_message, input)},
             )
         else:
             message("error", {"title": title, "body": alert_message})
@@ -532,7 +539,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
             capture_output=True,
         )
     except subprocess.CalledProcessError as e:
-        message("error", {"title": f"tximport error for {identifier}", "body": str(e)})
+        message(
+            "error", {"title": f"tximport error for {identifier}", "body": str(e)})
         print(
             f"Unable to produce gene mapping from tximport. Error surfaced from tximport -> {e}"
         )
@@ -550,7 +558,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         passed_tximport=True,
         sample_name=input.sample_name,
         salmon_aux_output=LatchDir(SALMON_DIR, REMOTE_PATH),
-        salmon_quant_file=LatchFile(salmon_quant, REMOTE_PATH / salmon_quant.name),
+        salmon_quant_file=LatchFile(
+            salmon_quant, REMOTE_PATH / salmon_quant.name),
         gene_abundance_file=LatchFile(
             tximport_output_path, REMOTE_PATH / tximport_output_path.name
         ),
@@ -572,7 +581,8 @@ class SalmonError(Exception):
 
 # Each Salmon warning or error log starts with a timestamp surrounded in square
 # brackets ('\d{4}' represents the first part of the timestamp - the year)
-_SALMON_ALERT_PATTERN = re.compile(r"\[(warning|error)\] (.+?)(?:\[\d{4}|$)", re.DOTALL)
+_SALMON_ALERT_PATTERN = re.compile(
+    r"\[(warning|error)\] (.+?)(?:\[\d{4}|$)", re.DOTALL)
 
 
 _COUNT_TABLE_GENE_ID_COLUMN = "gene_id"
@@ -588,8 +598,8 @@ def count_matrix_and_multiqc(
     count_matrix_file = None
     multiqc_report_file = None
 
-    def remote(suffix: str):
-        return _remote_output_dir(output_directory) + run_name + "/" + suffix
+    REMOTE_PATH = f"latch:///{output_directory}{run_name}/"
+    """Remote path prefix for LatchFiles + LatchDirs"""
 
     # Create combined count matrix
     if all(x.passed_tximport for x in ts_outputs):
@@ -603,7 +613,8 @@ def count_matrix_and_multiqc(
 
         combined_counts = defaultdict(dict)
         for tso in ts_outputs:
-            gene_abundance_file = Path(tso.gene_abundance_file.local_path).resolve()
+            gene_abundance_file = Path(
+                tso.gene_abundance_file.local_path).resolve()
             with gene_abundance_file.open("r") as f:
                 for row in csv.DictReader(f, dialect=csv.excel_tab):
                     gene_name = row["Name"]
@@ -624,7 +635,7 @@ def count_matrix_and_multiqc(
 
         count_matrix_file = LatchFile(
             str(raw_count_table_path),
-            remote("Quantification (salmon)/counts.tsv"),
+            REMOTE_PATH + "Quantification (salmon)/counts.tsv",
         )
     else:
         message(
@@ -642,7 +653,7 @@ def count_matrix_and_multiqc(
         subprocess.run(["multiqc", *aux_paths], check=True)
         multiqc_report_file = LatchFile(
             "/root/multiqc_report.html",
-            remote("multiqc_report.html"),
+            REMOTE_PATH + "multiqc_report.html"),
         )
     except subprocess.CalledProcessError as e:
         print(f"Error occurred while generating MultiQC report -> {e}")
@@ -658,11 +669,11 @@ def count_matrix_and_multiqc(
 
 
 class AlignmentTools(Enum):
-    star_salmon = "Traditional Alignment + Quantification"
-    salmon = "Selective Alignment + Quantification"
+    star_salmon="Traditional Alignment + Quantification"
+    salmon="Selective Alignment + Quantification"
 
 
-@workflow
+@ workflow
 def rnaseq(
     samples: List[Sample],
     alignment_quantification_tools: AlignmentTools,
@@ -693,7 +704,8 @@ def rnaseq(
         ]
     ] = None,
     design_matrix_sample_id_column: Optional[
-        Annotated[str, FlyteAnnotation({"_tmp_hack_deseq2": "design_id_column"})]
+        Annotated[str, FlyteAnnotation(
+            {"_tmp_hack_deseq2": "design_id_column"})]
     ] = None,
     design_formula: Annotated[
         List[List[str]],
@@ -711,6 +723,8 @@ def rnaseq(
     salmon_index: Optional[LatchFile] = None,
     save_indices: bool = False,
     custom_output_dir: Optional[LatchDir] = None,
+
+
 ):
     """Perform alignment and quantification on Bulk RNA-Sequencing reads
 
@@ -1070,20 +1084,20 @@ def rnaseq(
           __metadata__:
             display_name: Custom Output Location
     """
-    inputs = prepare_trimgalore_salmon_inputs(
-        samples=samples,
-        run_name=run_name,
-        clip_r1=None,
-        clip_r2=None,
-        three_prime_clip_r1=None,
-        three_prime_clip_r2=None,
-        custom_output_dir=custom_output_dir,
-        latch_genome=latch_genome,
-        custom_gtf=custom_gtf,
-        custom_ref_genome=custom_ref_genome,
-        custom_ref_trans=custom_ref_trans,
-        custom_salmon_index=salmon_index,
-        save_indices=save_indices,
+    inputs=prepare_trimgalore_salmon_inputs(
+        samples = samples,
+        run_name = run_name,
+        clip_r1 = None,
+        clip_r2 = None,
+        three_prime_clip_r1 = None,
+        three_prime_clip_r2 = None,
+        custom_output_dir = custom_output_dir,
+        latch_genome = latch_genome,
+        custom_gtf = custom_gtf,
+        custom_ref_genome = custom_ref_genome,
+        custom_ref_trans = custom_ref_trans,
+        custom_salmon_index = salmon_index,
+        save_indices = save_indices,
     )
     outputs = map_task(trimgalore_salmon)(input=inputs)
     count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
