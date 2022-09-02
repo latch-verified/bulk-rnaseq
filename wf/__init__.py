@@ -156,7 +156,11 @@ class TrimgaloreSalmonOutput:
     passed_salmon: bool
     passed_tximport: bool
     sample_name: str
-    salmon_output: LatchDir
+    salmon_aux_output: LatchDir
+    salmon_quant_file: LatchFile
+    """Tab-separated transcript quantification file."""
+    gene_abundance_file: LatchFile
+    """Gene abundance file from tximport."""
     trimgalore_reports: List[LatchFile]
 
 
@@ -374,6 +378,32 @@ def _build_index(gentrome: Path) -> Path:
     return Path("/root/salmon_index")
 
 
+def local(suffix: Optional[str] = None) -> str:
+    salmon_path = "/root/salmon_quant/"
+    if suffix is not None:
+        salmon_path += suffix
+    return salmon_path
+
+
+def remote(suffix: Optional[str] = None) -> str:
+    i = input
+    path = f"{i.base_remote_output_dir}{i.run_name}/Quantification (salmon)/{i.sample_name}/"
+    if suffix is not None:
+        path += suffix
+    return path
+
+
+def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
+    if "of fragments were shorter than the k" in alert_message:
+        # percent = float(alert_message.split("%")[0])
+        # min_read_size = int(alert_message.split(".")[-2].split(" ")[-1])
+        return alert_message
+    elif "Detected a *potential* strand bias" in alert_message:
+        default = "salmon_quant/lib_format_counts.json"
+        return alert_message.replace(default, remote("lib_format_counts.json"))
+    return alert_message
+
+
 @large_task
 def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
     outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
@@ -395,19 +425,6 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
             custom_ref_genome = file
         elif name == "gtf":
             custom_gtf = file
-
-    def local(suffix: Optional[str] = None) -> str:
-        salmon_path = "/root/salmon_quant/"
-        if suffix is not None:
-            salmon_path += suffix
-        return salmon_path
-
-    def remote(suffix: Optional[str] = None) -> str:
-        i = input
-        path = f"{i.base_remote_output_dir}{i.run_name}/Quantification (salmon)/{i.sample_name}/"
-        if suffix is not None:
-            path += suffix
-        return path
 
     gtf_path = None
     if custom_gtf is not None:
@@ -455,7 +472,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         r1, r2 = merged
         reads = ["-1", str(r1), "-2", str(r2)]
 
-    # Delete unneeded files to free space
+    # Free space.
     for rep in trimmed_replicates:
         os.remove(rep.r1.path)
         if isinstance(rep, PairedEndReads):
@@ -478,19 +495,9 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
     quant_cmd += ["--writeMappings", local(f"{slugify(input.sample_name)}.bam")]
     returncode, stdout = _capture_output(quant_cmd)
 
-    # Delete unneeded files to free space
+    # Free space.
     for path in merged:
         os.remove(path)
-
-    def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
-        if "of fragments were shorter than the k" in alert_message:
-            # percent = float(alert_message.split("%")[0])
-            # min_read_size = int(alert_message.split(".")[-2].split(" ")[-1])
-            return alert_message
-        elif "Detected a *potential* strand bias" in alert_message:
-            default = "salmon_quant/lib_format_counts.json"
-            return alert_message.replace(default, remote("lib_format_counts.json"))
-        return alert_message
 
     # Add info messages too?
     identifier = f"sample {input.sample_name}"
@@ -510,8 +517,11 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
         raise RuntimeError(deets)
 
-    quant_name = local(f"{slugify(input.sample_name)}_quant.sf")
+    quant_name = f"/root/{slugify(input.sample_name)}_quant.sf"
     salmon_quant = Path(local("quant.sf")).rename(quant_name)
+
+    bam_name = f"/root/{slugify(input.sample_name)}.bam"
+    salmon_bam = Path(local("quant.sf")).rename(bam_name)
 
     try:
         gtf_path = (
@@ -520,7 +530,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
             else gm.download_gtf(show_progress=False)
         )
 
-        tximport_output_path = local("genome_abundance.sf")
+        tximport_output_path = local("gene_abundance.sf")
         subprocess.run(
             [
                 "/root/wf/run_tximport.R",
@@ -531,9 +541,6 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
             ],
             capture_output=True,
         )
-
-        ga_name = local(f"{slugify(input.sample_name)}_genome_abundance.sf")
-        Path(tximport_output_path).rename(ga_name)
     except subprocess.CalledProcessError as e:
         message("error", {"title": f"tximport error for {identifier}", "body": str(e)})
         print(
@@ -552,7 +559,9 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         passed_salmon=True,
         passed_tximport=True,
         sample_name=input.sample_name,
-        salmon_output=LatchDir(local(), remote()),
+        salmon_aux_output=LatchDir(local(), remote()),
+        salmon_quant_file=salmon_quant,
+        gene_abundance_file=tximport_output_path,
         trimgalore_reports=trimgalore_reports,
     )
 
