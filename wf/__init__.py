@@ -680,9 +680,7 @@ def bam_to_junction(
     output_directory: Optional[LatchDir],
 ) -> LatchFile:
 
-    REMOTE_PATH = (
-        f"latch:///{output_directory}{run_name}/Alternative Splicing (LeafCutter)/"
-    )
+    REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/Alternative Splicing (LeafCutter)/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     message(
@@ -732,7 +730,7 @@ def bam_to_junction(
     try:
         junctions = []
         for tso in ts_outputs:
-            print("Converting {tso.sample_name} BAM file to junction file.")
+            print(f"Converting {tso.sample_name} BAM file to junction file.")
             bam = Path(tso.salmon_bam_file.local_path).resolve()
             sorted_bam = samtools_sort(bam)
             samtools_index(sorted_bam)
