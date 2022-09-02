@@ -161,6 +161,8 @@ class TrimgaloreSalmonOutput:
     """Tab-separated transcript quantification file."""
     gene_abundance_file: LatchFile
     """Gene abundance file from tximport."""
+    salmon_bam_file: LatchFile
+    """BAM from salmon pseudo-alignment."""
     trimgalore_reports: List[LatchFile]
 
 
@@ -384,7 +386,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
     SALMON_DIR = "/root/salmon_quant/"
     """Default location for salmon outputs."""
 
-    REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
+    REMOTE_PATH = f"{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
@@ -552,6 +554,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         sample_name=input.sample_name,
         salmon_aux_output=LatchDir(SALMON_DIR, REMOTE_PATH),
         salmon_quant_file=LatchFile(salmon_quant, REMOTE_PATH + salmon_quant.name),
+        salmon_bam_file=LatchFile(bam_path, REMOTE_PATH + bam_path.name),
         gene_abundance_file=LatchFile(
             tximport_output_path, REMOTE_PATH + tximport_output_path.name
         ),
@@ -589,7 +592,7 @@ def count_matrix_and_multiqc(
     count_matrix_file = None
     multiqc_report_file = None
 
-    REMOTE_PATH = f"latch:///{output_directory}{run_name}/"
+    REMOTE_PATH = f"{output_directory}{run_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     # Create combined count matrix
