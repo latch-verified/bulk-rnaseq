@@ -378,33 +378,24 @@ def _build_index(gentrome: Path) -> Path:
     return Path("/root/salmon_index")
 
 
-def local(suffix: Optional[str] = None) -> str:
-    salmon_path = "/root/salmon_quant/"
-    if suffix is not None:
-        salmon_path += suffix
-    return salmon_path
-
-
-def remote(input: TrimgaloreSalmonInput, suffix: Optional[str] = None) -> str:
-    path = f"{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
-    if suffix is not None:
-        path += suffix
-    return path
-
-
-def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
-    if "of fragments were shorter than the k" in alert_message:
-        return alert_message
-    elif "Detected a *potential* strand bias" in alert_message:
-        default = "salmon_quant/lib_format_counts.json"
-        return alert_message.replace(
-            default, remote(input, suffix="lib_format_counts.json")
-        )
-    return alert_message
-
-
 @large_task
 def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
+    def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
+        if "of fragments were shorter than the k" in alert_message:
+            return alert_message
+        elif "Detected a *potential* strand bias" in alert_message:
+            default = "salmon_quant/lib_format_counts.json"
+            return alert_message.replace(
+                default, remote(input, suffix="lib_format_counts.json")
+            )
+        return alert_message
+
+    SALMON_DIR = "/root/salmon_quant/"
+    """Default location for salmon outputs."""
+
+    REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
+    """Remote path prefix for LatchFiles + LatchDirs"""
+
     outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
     trimmed_replicates = [x[1] for x in outputs]
     trimgalore_reports = [y for x in outputs for y in x[0]]
@@ -430,7 +421,6 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         gtf_path = _unzip_if_needed(custom_gtf.local_path)
 
     if custom_salmon_index is not None:
-        # TODO: validate provided index...
         run(["tar", "-xzvf", custom_salmon_index.local_path])
 
         if not Path("salmon_index").is_dir():
@@ -489,11 +479,12 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         str(96),
         "--validateMappings",
         "-o",
-        local(),
+        SALMON_DIR,
     ]
 
-    bam_path = f"/root/{slugify(input.sample_name)}.bam"
-    quant_cmd += ["--writeMappings", bam_path]
+    bam_path = Path(f"/root/{slugify(input.sample_name)}.bam")
+    quant_cmd += ["--writeMappings", str(bam_path)]
+
     returncode, stdout = _capture_output(quant_cmd)
 
     # Free space.
@@ -518,8 +509,9 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
         raise RuntimeError(deets)
 
+    # Also moves count files out of auxilliary directory.
     quant_path = f"/root/{slugify(input.sample_name)}_quant.sf"
-    salmon_quant = Path(local("quant.sf")).rename(quant_path)
+    salmon_quant = Path(f"{SALMON_DIR}/quant.sf").rename(quant_path)
 
     try:
         gtf_path = (
@@ -528,7 +520,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
             else gm.download_gtf(show_progress=False)
         )
 
-        tximport_output_path = local("gene_abundance.sf")
+        tximport_output_path = Path(f"{SALMON_DIR}/gene_abundance.sf")
         subprocess.run(
             [
                 "/root/wf/run_tximport.R",
@@ -547,7 +539,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         raise RuntimeError(f"Tximport error: {e}")
 
     for unwanted in ("logs", "cmd_info.json"):
-        path = Path(local(unwanted))
+        path = Path(f"{SALMON_DIR}/{unwanted}")
         if "." in unwanted:
             path.unlink()
         else:
@@ -557,9 +549,11 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         passed_salmon=True,
         passed_tximport=True,
         sample_name=input.sample_name,
-        salmon_aux_output=LatchDir(local(), remote(input)),
-        salmon_quant_file=salmon_quant,
-        gene_abundance_file=tximport_output_path,
+        salmon_aux_output=LatchDir(SALMON_DIR, REMOTE_PATH),
+        salmon_quant_file=LatchFile(salmon_quant, REMOTE_PATH / salmon_quant.name),
+        gene_abundance_file=LatchFile(
+            tximport_output_path, REMOTE_PATH / tximport_output_path.name
+        ),
         trimgalore_reports=trimgalore_reports,
     )
 
