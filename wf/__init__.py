@@ -609,8 +609,8 @@ def count_matrix_and_multiqc(
 
         combined_counts = defaultdict(dict)
         for tso in ts_outputs:
-            genome_abundance_file = Path(tso.genome_abundance_file.local_path).resolve()
-            with genome_abundance_file.open("r") as f:
+            gene_abundance_file = Path(tso.gene_abundance_file.local_path).resolve()
+            with gene_abundance_file.open("r") as f:
                 for row in csv.DictReader(f, dialect=csv.excel_tab):
                     gene_name = row["Name"]
                     combined_counts[gene_name][tso.sample_name] = row["NumReads"]
