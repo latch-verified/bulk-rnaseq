@@ -492,7 +492,9 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         "-o",
         local(),
     ]
-    quant_cmd += ["--writeMappings", local(f"{slugify(input.sample_name)}.bam")]
+
+    bam_path = f"/root/{slugify(input.sample_name)}.bam"
+    quant_cmd += ["--writeMappings", bam_path]
     returncode, stdout = _capture_output(quant_cmd)
 
     # Free space.
@@ -517,11 +519,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
         raise RuntimeError(deets)
 
-    quant_name = f"/root/{slugify(input.sample_name)}_quant.sf"
-    salmon_quant = Path(local("quant.sf")).rename(quant_name)
-
-    bam_name = f"/root/{slugify(input.sample_name)}.bam"
-    salmon_bam = Path(local("quant.sf")).rename(bam_name)
+    quant_path = f"/root/{slugify(input.sample_name)}_quant.sf"
+    salmon_quant = Path(local("quant.sf")).rename(quant_path)
 
     try:
         gtf_path = (
