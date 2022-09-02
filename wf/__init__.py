@@ -594,12 +594,6 @@ def count_matrix_and_multiqc(
     count_matrix_file = None
     multiqc_report_file = None
 
-    Path("/root/inputs").mkdir(parents=True)
-    paths = [
-        Path(x.salmon_output.local_path).rename(f"/root/inputs/{x.sample_name}")
-        for x in ts_outputs
-    ]
-
     def remote(suffix: str):
         return _remote_output_dir(output_directory) + run_name + "/" + suffix
 
@@ -614,12 +608,12 @@ def count_matrix_and_multiqc(
         )
 
         combined_counts = defaultdict(dict)
-        for output, path in zip(ts_outputs, paths):
-            genome_abundance_file = next(path.glob("*genome_abundance.sf"))
+        for tso in ts_outputs:
+            genome_abundance_file = Path(tso.genome_abundance_file.local_path).resolve()
             with genome_abundance_file.open("r") as f:
                 for row in csv.DictReader(f, dialect=csv.excel_tab):
                     gene_name = row["Name"]
-                    combined_counts[gene_name][output.sample_name] = row["NumReads"]
+                    combined_counts[gene_name][tso.sample_name] = row["NumReads"]
 
         raw_count_table_path = Path("./counts.tsv").resolve()
         with raw_count_table_path.open("w") as file:
@@ -648,7 +642,10 @@ def count_matrix_and_multiqc(
         )
 
     try:
-        subprocess.run(["multiqc", *paths], check=True)
+        aux_paths = [
+            str(Path(x.salmon_aux_output.local_path).resolve()) for x in ts_outputs
+        ]
+        subprocess.run(["multiqc", *aux_paths], check=True)
         multiqc_report_file = LatchFile(
             "/root/multiqc_report.html",
             remote("multiqc_report.html"),
