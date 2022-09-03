@@ -16,11 +16,13 @@ from typing import Annotated, Iterable, List, Optional, Tuple, Union
 import lgenome
 from dataclasses_json import dataclass_json
 from flytekit.core.annotation import FlyteAnnotation
+from flytekit.core.launch_plan import reference_launch_plan
 from latch import (large_task, map_task, medium_task, message, small_task,
                    workflow)
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
-from latch.verified import deseq2_wf
+
+# from latch.verified import deseq2_wf
 
 print = functools.partial(print, flush=True)
 
@@ -161,9 +163,9 @@ class TrimgaloreSalmonOutput:
     """Tab-separated transcript quantification file."""
     gene_abundance_file: LatchFile
     """Gene abundance file from tximport."""
-    salmon_bam_file: LatchFile
-    """BAM from salmon pseudo-alignment."""
     trimgalore_reports: List[LatchFile]
+    """Temporary field for junction file."""
+    junction_file: Optional[LatchFile]
 
 
 def slugify(value: str) -> str:
@@ -306,7 +308,7 @@ def do_trimgalore(
     def remote(middle: str) -> str:
         base = f"{ts_input.base_remote_output_dir}{ts_input.run_name}"
         tail = f"{ts_input.sample_name}/replicate_{replicate_index}/"
-        return f"{base}/Quality Control Data/Trimming {middle} (TrimGalore)/{tail}"
+        return f"latch:///{base}/Quality Control Data/Trimming {middle} (TrimGalore)/{tail}"
 
     reads_directory = remote("Reads")
     if isinstance(reads, SingleEndReads):
@@ -485,20 +487,9 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         SALMON_DIR,
     ]
 
-    bam_path = Path(f"/root/{slugify(input.sample_name)}.bam")
-    quant_cmd += ["--writeMappings"]
-
-    str(bam_path)
-
     try:
-        ps = subprocess.Popen(quant_cmd, stdout=subprocess.PIPE)
-        output = subprocess.check_output(
-            ("samtools", "view", "-b", "-o", bam_path), stdin=ps.stdout
-        )
-        ps.wait()
-    except subprocess.CalledProcessError as e:
-        returncode = e.returncode
-        stdout = e.output
+        returncode, stdout = _capture_output(quant_cmd)
+    except subprocess.CalledProcessError as _:
 
         identifier = f"sample {input.sample_name}"
         errors = []
@@ -520,13 +511,76 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
             deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
             raise RuntimeError(deets)
 
-    # Free space.
-    for path in merged:
-        os.remove(path)
-
     # Also moves count files out of auxilliary directory.
     quant_path = f"/root/{slugify(input.sample_name)}_quant.sf"
     salmon_quant = Path(f"{SALMON_DIR}/quant.sf").rename(quant_path)
+
+    make_juncs = True
+    junc_path = Path(f"/root/{input.sample_name}.bam.junc")
+    if make_juncs:
+        # TODO - gaw so bad
+        print("\tDownloading STAR map.")
+        run(
+            [
+                "aws",
+                "s3",
+                "sync",
+                "s3://latch-genomes/Homo_sapiens/RefSeq/GRCh38.p14/STAR_index/",
+                "STAR_index",
+                "--no-progress",  # shh
+            ]
+        )
+
+        print(f"\tMaking splice-aware alignment map {input.sample_name}")
+        run(
+            [
+                "STAR",
+                "--genomeDir",
+                "STAR_index",
+                "--twopassMode",
+                "Basic",
+                "--outSAMstrandField",
+                "intronMotif",
+                "--outSAMtype",
+                "BAM",
+                "SortedByCoordinate",
+                "--readFilesIn",
+                *[str(read) for read in merged],
+                "--runThreadN",
+                "96",
+            ]
+        )
+
+        print(f"\tIndexing splice-aware alignment map {input.sample_name}")
+        run(
+            [
+                "samtools",
+                "index",
+                "Aligned.sortedByCoord.out.bam",
+                "-@",
+                "96",
+            ]
+        )
+
+        print(f"\tIndexing splice-aware alignment map {input.sample_name}")
+        run(
+            [
+                "regtools",
+                "junctions",
+                "extract",
+                "Aligned.sortedByCoord.out.bam",
+                "-s",
+                "0",  # TODO strandedness
+                "-o",
+                str(junc_path),
+            ]
+        )
+
+        print("\tDone with junctions")
+
+    # Free space.
+    for path in merged:
+        os.remove(path)
 
     try:
         gtf_path = (
@@ -560,13 +614,17 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         else:
             shutil.rmtree(path)
 
+    junction_file = None
+    if make_juncs is True:
+        junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
+
     return TrimgaloreSalmonOutput(
         passed_salmon=True,
         passed_tximport=True,
         sample_name=input.sample_name,
         salmon_aux_output=LatchDir(SALMON_DIR, REMOTE_PATH),
         salmon_quant_file=LatchFile(salmon_quant, REMOTE_PATH + salmon_quant.name),
-        salmon_bam_file=LatchFile(bam_path, REMOTE_PATH + bam_path.name),
+        junction_file=junction_file,
         gene_abundance_file=LatchFile(
             tximport_output_path, REMOTE_PATH + tximport_output_path.name
         ),
@@ -604,7 +662,7 @@ def count_matrix_and_multiqc(
     count_matrix_file = None
     multiqc_report_file = None
 
-    REMOTE_PATH = f"latch:///{output_directory}{run_name}/"
+    REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     # Create combined count matrix
@@ -673,7 +731,7 @@ def count_matrix_and_multiqc(
     return count_matrix_file, multiqc_report_file
 
 
-@medium_task
+@large_task
 def bam_to_junction(
     run_name: str,
     ts_outputs: List[TrimgaloreSalmonOutput],
@@ -693,7 +751,7 @@ def bam_to_junction(
 
     def samtools_sort(bam: Path) -> Path:
         sorted_path = bam.parent / ("sorted_" + bam.name)
-        run(["samtools", "sort", str(bam), "-o", sorted_path])
+        run(["samtools", "sort", str(bam), "-@", "64", "-o", sorted_path])
         return sorted_path
 
     def samtools_index(bam: Path):
@@ -701,6 +759,8 @@ def bam_to_junction(
             [
                 "samtools",
                 "index",
+                "-@",
+                "64",
                 str(bam),
             ]
         )
@@ -765,6 +825,73 @@ class AlignmentTools(Enum):
 @small_task
 def noop() -> None:
     return None
+
+
+@reference_launch_plan(
+    project="4107",
+    domain="development",
+    name="wf.__init__.deseq2_wf",
+    version="1.3.20-7c624c",
+)
+def deseq2_wf(
+    report_name: str,
+    count_table_source: str = "single",
+    raw_count_table: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "_tmp_hack_deseq2": "counts_table",
+                    "rules": [
+                        {
+                            "regex": r".*\.(csv|tsv|xlsx)$",
+                            "message": "Expected a CSV, TSV, or XLSX file",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
+    raw_count_tables: List[LatchFile] = [],
+    count_table_gene_id_column: str = "gene_id",
+    output_location_type: str = "default",
+    output_location: Optional[LatchDir] = None,
+    conditions_source: str = "manual",
+    manual_conditions: Annotated[
+        List[List[str]],
+        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
+    ] = [],
+    conditions_table: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "_tmp_hack_deseq2": "design_matrix",
+                    "rules": [
+                        {
+                            "regex": r".*\.(csv|tsv|xlsx)$",
+                            "message": "Expected a CSV, TSV, or XLSX file",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
+    design_matrix_sample_id_column: Optional[
+        Annotated[str, FlyteAnnotation({"_tmp_hack_deseq2": "design_id_column"})]
+    ] = None,
+    design_formula: Annotated[
+        List[List[str]],
+        FlyteAnnotation(
+            {
+                "_tmp_hack_deseq2": "design_formula",
+                "_tmp_hack_deseq2_allow_clustering": True,
+            }
+        ),
+    ] = [],
+    number_of_genes_to_plot: int = 30,
+) -> LatchDir:
+    ...
 
 
 @workflow
