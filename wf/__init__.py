@@ -383,23 +383,13 @@ def _build_index(gentrome: Path) -> Path:
 
 
 @large_task
-def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
+def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmonOutput]:
 
     SALMON_DIR = "/root/salmon_quant/"
     """Default location for salmon outputs."""
 
     REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
-
-    def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
-        if "of fragments were shorter than the k" in alert_message:
-            return alert_message
-        elif "Detected a *potential* strand bias" in alert_message:
-            default = "salmon_quant/lib_format_counts.json"
-            return alert_message.replace(
-                default, REMOTE_PATH + "lib_format_counts.json"
-            )
-        return alert_message
 
     outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
     trimmed_replicates = [x[1] for x in outputs]
@@ -490,6 +480,18 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
     try:
         returncode, stdout = _capture_output(quant_cmd)
     except subprocess.CalledProcessError as _:
+
+        def parse_salmon_warning(
+            alert_message: str, input: TrimgaloreSalmonInput
+        ) -> str:
+            if "of fragments were shorter than the k" in alert_message:
+                return alert_message
+            elif "Detected a *potential* strand bias" in alert_message:
+                default = "salmon_quant/lib_format_counts.json"
+                return alert_message.replace(
+                    default, REMOTE_PATH + "lib_format_counts.json"
+                )
+            return alert_message
 
         identifier = f"sample {input.sample_name}"
         errors = []
@@ -655,7 +657,7 @@ _COUNT_TABLE_GENE_ID_COLUMN = "gene_id"
 @medium_task
 def count_matrix_and_multiqc(
     run_name: str,
-    ts_outputs: List[TrimgaloreSalmonOutput],
+    ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
 ) -> (Optional[LatchFile], Optional[LatchFile]):
 
@@ -665,49 +667,40 @@ def count_matrix_and_multiqc(
     REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
-    # Create combined count matrix
-    if all(x.passed_tximport for x in ts_outputs):
-        message(
-            "info",
-            {
-                "title": "Generating count matrix from all samples",
-                "body": "\n".join(f"- {x.sample_name}" for x in ts_outputs),
-            },
-        )
+    ts_outputs = [x for x in ts_outputs if x and x.passed_tximport]
+    message(
+        "info",
+        {
+            "title": "Generating count matrix from successful samples",
+            "body": "\n".join(f"- {x.sample_name}" for x in ts_outputs),
+        },
+    )
 
-        combined_counts = defaultdict(dict)
-        for tso in ts_outputs:
-            gene_abundance_file = Path(tso.gene_abundance_file.local_path).resolve()
-            with gene_abundance_file.open("r") as f:
-                for row in csv.DictReader(f, dialect=csv.excel_tab):
-                    gene_name = row["Name"]
-                    combined_counts[gene_name][tso.sample_name] = row["NumReads"]
+    combined_counts = defaultdict(dict)
+    for tso in ts_outputs:
+        gene_abundance_file = Path(tso.gene_abundance_file.local_path).resolve()
+        with gene_abundance_file.open("r") as f:
+            for row in csv.DictReader(f, dialect=csv.excel_tab):
+                gene_name = row["Name"]
+                combined_counts[gene_name][tso.sample_name] = row["NumReads"]
 
-        raw_count_table_path = Path("./counts.tsv").resolve()
-        with raw_count_table_path.open("w") as file:
-            sample_names = (x.sample_name for x in ts_outputs)
-            writer = csv.DictWriter(
-                file,
-                [_COUNT_TABLE_GENE_ID_COLUMN, *sample_names],
-                delimiter="\t",
-            )
-            writer.writeheader()
-            for gene_id, data in combined_counts.items():
-                data[_COUNT_TABLE_GENE_ID_COLUMN] = gene_id
-                writer.writerow(data)
+    raw_count_table_path = Path("./counts.tsv").resolve()
+    with raw_count_table_path.open("w") as file:
+        sample_names = (x.sample_name for x in ts_outputs)
+        writer = csv.DictWriter(
+            file,
+            [_COUNT_TABLE_GENE_ID_COLUMN, *sample_names],
+            delimiter="\t",
+        )
+        writer.writeheader()
+        for gene_id, data in combined_counts.items():
+            data[_COUNT_TABLE_GENE_ID_COLUMN] = gene_id
+            writer.writerow(data)
 
-        count_matrix_file = LatchFile(
-            str(raw_count_table_path),
-            REMOTE_PATH + "Quantification (salmon)/counts.tsv",
-        )
-    else:
-        message(
-            "warning",
-            {
-                "title": "Unable to create combined count matrix",
-                "body": "Some samples failed in the earlier step",
-            },
-        )
+    count_matrix_file = LatchFile(
+        str(raw_count_table_path),
+        REMOTE_PATH + "Quantification (salmon)/counts.tsv",
+    )
 
     try:
         aux_paths = [
@@ -734,7 +727,7 @@ def count_matrix_and_multiqc(
 @large_task
 def bam_to_junction(
     run_name: str,
-    ts_outputs: List[TrimgaloreSalmonOutput],
+    ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
 ) -> LatchFile:
 
