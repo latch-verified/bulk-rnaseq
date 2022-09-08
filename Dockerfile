@@ -1,14 +1,23 @@
-
 FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base:9a7d-main
 
-RUN apt-get update
-RUN apt-get install -y software-properties-common &&\
-    add-apt-repository "deb http://cloud.r-project.org/bin/linux/debian buster-cran40/" &&\
-    apt-key adv --keyserver keyserver.ubuntu.com --recv-key '95C0FAF38DB3CCAD0C080A7BDC78B2DDEABC47B7' &&\
-    apt-get install -y r-base r-base-dev libxml2-dev libcurl4-openssl-dev libssl-dev wget
+RUN apt-get update --yes &&\
+    apt-get install --yes --no-install-recommends wget software-properties-common dirmngr
 
-COPY imports.R /root/imports.R
-RUN /root/imports.R
+# >>> Install R
+RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-key '95C0FAF38DB3CCAD0C080A7BDC78B2DDEABC47B7'
+RUN debian_codename=$(lsb_release --codename --short) &&\
+    add-apt-repository "deb https://cloud.r-project.org/bin/linux/debian ${debian_codename}-cran40/"
+
+RUN apt-get update &&\
+     apt-get install --yes r-base r-base-dev locales &&\
+     apt-mark hold r-base r-base-dev
+
+RUN apt-get install --yes libcurl4-openssl-dev libgsl-dev libssl-dev libxml2-dev
+
+COPY txImports.R /root/txImports.R
+RUN /root/txImports.R
+COPY lcImports.R /root/lcImports.R
+RUN /root/lcImports.R
 
 RUN apt-get install -y curl vim default-jre-headless zlib1g zlib1g-dev unzip cmake
 RUN python3 -m pip install cutadapt
@@ -60,6 +69,12 @@ RUN curl -L https://github.com/griffithlab/regtools/archive/refs/tags/0.5.2.tar.
     make &&\
     mv regtools /bin/
 
+RUN wget https://sourceforge.net/projects/libpng/files/zlib/1.2.9/zlib-1.2.9.tar.gz/download &&\
+    tar -xzvf download &&\
+    cd zlib-1.2.9 &&\
+    ./configure && make && make install
+
+RUN apt-get install git && git clone https://github.com/davidaknowles/leafcutter
 
 COPY gentrome.sh /root/gentrome.sh
 

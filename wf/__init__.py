@@ -20,6 +20,7 @@ from flytekit.core.launch_plan import reference_launch_plan
 from latch import (large_task, map_task, medium_task, message, small_task,
                    workflow)
 from latch.resources.launch_plan import LaunchPlan
+from latch.resources.tasks import cached_large_task
 from latch.types import LatchDir, LatchFile, file_glob
 
 # from latch.verified import deseq2_wf
@@ -165,7 +166,7 @@ class TrimgaloreSalmonOutput:
     """Gene abundance file from tximport."""
     trimgalore_reports: List[LatchFile]
     """Temporary field for junction file."""
-    junction_file: Optional[LatchFile]
+    junction_file: LatchFile
 
 
 def slugify(value: str) -> str:
@@ -382,7 +383,7 @@ def _build_index(gentrome: Path) -> Path:
     return Path("/root/salmon_index")
 
 
-@large_task
+@cached_large_task("foobar1")
 def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmonOutput]:
 
     SALMON_DIR = "/root/salmon_quant/"
@@ -391,7 +392,15 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
-    outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
+    #
+    # Trimgalore (separate!)
+    try:
+        outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
+    except TrimgaloreError as e:
+        print(f"Handling failure in trmming {input.sample_name} gracefully.")
+        print(f"\tTrimming error ~ {e}")
+        return None
+
     trimmed_replicates = [x[1] for x in outputs]
     trimgalore_reports = [y for x in outputs for y in x[0]]
 
@@ -462,6 +471,9 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         if isinstance(rep, PairedEndReads):
             os.remove(rep.r2.path)
 
+    #
+    # Salmon (separate!)
+
     quant_cmd = [
         "salmon",
         "quant",
@@ -511,7 +523,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
 
         if returncode != 0:
             deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
-            raise RuntimeError(deets)
+            return None
 
     # Also moves count files out of auxilliary directory.
     quant_path = f"/root/{slugify(input.sample_name)}_quant.sf"
@@ -520,65 +532,77 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     make_juncs = True
     junc_path = Path(f"/root/{input.sample_name}.bam.junc")
     if make_juncs:
-        # TODO - gaw so bad
-        print("\tDownloading STAR map.")
-        run(
-            [
-                "aws",
-                "s3",
-                "sync",
-                "s3://latch-genomes/Homo_sapiens/RefSeq/GRCh38.p14/STAR_index/",
-                "STAR_index",
-                "--no-progress",  # shh
-            ]
-        )
+        try:
+            # TODO - gaw so bad
+            print("\tDownloading STAR map.")
+            run(
+                [
+                    "aws",
+                    "s3",
+                    "sync",
+                    "s3://latch-genomes/Homo_sapiens/RefSeq/GRCh38.p14/STAR_index/",
+                    "STAR_index",
+                    "--no-progress",  # shh
+                ]
+            )
 
-        print(f"\tMaking splice-aware alignment map {input.sample_name}")
-        run(
-            [
-                "STAR",
-                "--genomeDir",
-                "STAR_index",
-                "--twopassMode",
-                "Basic",
-                "--outSAMstrandField",
-                "intronMotif",
-                "--outSAMtype",
-                "BAM",
-                "SortedByCoordinate",
-                "--readFilesIn",
-                *[str(read) for read in merged],
-                "--runThreadN",
-                "96",
-            ]
-        )
+            print(f"\tMaking splice-aware alignment map {input.sample_name}")
+            run(
+                [
+                    "STAR",
+                    "--genomeDir",
+                    "STAR_index",
+                    "--twopassMode",
+                    "Basic",
+                    "--outSAMstrandField",
+                    "intronMotif",
+                    "--outSAMtype",
+                    "BAM",
+                    "SortedByCoordinate",
+                    "--readFilesIn",
+                    *[str(read) for read in merged],
+                    "--runThreadN",
+                    "96",
+                ]
+            )
 
-        print(f"\tIndexing splice-aware alignment map {input.sample_name}")
-        run(
-            [
-                "samtools",
-                "index",
-                "Aligned.sortedByCoord.out.bam",
-                "-@",
-                "96",
-            ]
-        )
+            print(f"\tIndexing splice-aware alignment map {input.sample_name}")
+            run(
+                [
+                    "samtools",
+                    "index",
+                    "Aligned.sortedByCoord.out.bam",
+                    "-@",
+                    "96",
+                ]
+            )
 
-        print(f"\tIndexing splice-aware alignment map {input.sample_name}")
-        run(
-            [
-                "regtools",
-                "junctions",
-                "extract",
-                "Aligned.sortedByCoord.out.bam",
-                "-s",
-                "0",  # TODO strandedness
-                "-o",
-                str(junc_path),
-            ]
-        )
+            print(f"\tIndexing splice-aware alignment map {input.sample_name}")
+            run(
+                [
+                    "regtools",
+                    "junctions",
+                    "extract",
+                    "Aligned.sortedByCoord.out.bam",
+                    "-s",
+                    "0",  # TODO strandedness
+                    "-o",
+                    str(junc_path),
+                ]
+            )
 
-        print("\tDone with junctions")
+            print("\tDone with junctions")
+
+        except subprocess.CalledProcessError as e:
+            message(
+                "error",
+                {
+                    "title": f"junction construction error for {input.sample_name}",
+                    "body": str(e),
+                },
+            )
+            print(f"Error building junction file: {e}")
+            return None
 
     # Free space.
     for path in merged:
@@ -607,7 +631,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         print(
             f"Unable to produce gene mapping from tximport. Error surfaced from tximport -> {e}"
         )
-        raise RuntimeError(f"Tximport error: {e}")
+        print(f"Tximport error: {e}")
+        return None
 
     for unwanted in ("logs", "cmd_info.json"):
         path = Path(f"{SALMON_DIR}/{unwanted}")
@@ -616,10 +641,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         else:
             shutil.rmtree(path)
 
-    junction_file = None
-    if make_juncs is True:
-        junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
-
+    junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
     return TrimgaloreSalmonOutput(
         passed_salmon=True,
         passed_tximport=True,
@@ -724,8 +746,8 @@ def count_matrix_and_multiqc(
     return count_matrix_file, multiqc_report_file
 
 
-@large_task
-def bam_to_junction(
+@medium_task
+def diff_splicing_analysis(
     run_name: str,
     ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
@@ -742,71 +764,23 @@ def bam_to_junction(
         },
     )
 
-    def samtools_sort(bam: Path) -> Path:
-        sorted_path = bam.parent / ("sorted_" + bam.name)
-        run(["samtools", "sort", str(bam), "-@", "64", "-o", sorted_path])
-        return sorted_path
+    for tso in ts_outputs:
+        junction_file = Path(tso.junction_file.local_path).resolve()
+        print(f"local: {junction_file}")
 
-    def samtools_index(bam: Path):
-        run(
-            [
-                "samtools",
-                "index",
-                "-@",
-                "64",
-                str(bam),
-            ]
-        )
+    # build juncfiles list
+    # intron clustering
+    # python leafcutter/clustering/leafcutter_cluster_regtools.py -j test_juncfiles.txt -m 50 -o foo -l 5000000 --nochromcheck=True
+    # build intron group list
+    # differential intron
 
-    def extract_junctions(bam: Path) -> Path:
-        junc_file = bam.parent / (bam.name + ".junc")
-        run(
-            [
-                "regtools",
-                "junctions",
-                "extract",
-                "-a",
-                "8",  # anchor length
-                "-m",
-                "50",  # minimum intron
-                "-M",
-                "500000",  # maximum intron
-                str(bam),
-                "-o",
-                str(junc_file),
-                "-s",
-                str(0),
-            ]
-        )
-        return junc_file
+    import time
 
-    try:
-        junctions = []
-        for tso in ts_outputs:
-            print(f"Converting {tso.sample_name} BAM file to junction file.")
-            bam = Path(tso.salmon_bam_file.local_path).resolve()
-            sorted_bam = samtools_sort(bam)
-            samtools_index(sorted_bam)
-            junctions.append(extract_junctions(sorted_bam))
-    except subprocess.CalledProcessError as e:
-        print(f"Error occurred while generating combined junction file -> {e}")
-        message(
-            "error",
-            {
-                "title": "Unable to generate combined junction file",
-                "body": "See logs for more information",
-            },
-        )
-
-    combined_juncs = Path("/root/all_juncs.txt")
-    with open(combined_juncs, "w") as f:
-        for j in junctions:
-            with open(j) as jf:
-                f.write(jf.read())
+    time.sleep(100000)
 
     return LatchFile(
-        combined_juncs,
-        REMOTE_PATH + "all_juncs.txt",
+        "/root/test.txt",
+        REMOTE_PATH + "test.txt",
     )
 
 
@@ -824,7 +798,7 @@ def noop() -> None:
     project="4107",
     domain="development",
     name="wf.__init__.deseq2_wf",
-    version="1.3.20-7c624c",
+    version="1.3.20-ef8193",
 )
 def deseq2_wf(
     report_name: str,
