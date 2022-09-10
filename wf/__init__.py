@@ -411,7 +411,7 @@ def _build_index(gentrome: Path) -> Path:
     return Path("/root/salmon_index")
 
 
-@cached_large_task("foobar1")
+@large_spot_task
 def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmonOutput]:
 
     SALMON_DIR = "/root/salmon_quant/"
@@ -779,7 +779,12 @@ def leafcutter(
     run_name: str,
     ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
+    run_splicing: bool = False,
 ) -> LatchFile:
+
+    if run_splicing is False:
+        # random file noop, hack until boolean conditionals work
+        return LatchFile("/root/README.md")
 
     REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/Alternative Splicing (LeafCutter)/"
     """Remote path prefix for LatchFiles + LatchDirs"""
@@ -819,9 +824,6 @@ def leafcutter(
             "-k=True",  # Don't error on weird chromosome names
         ]
     )
-
-    with open(cluster_counts) as f:
-        f.readline()
 
     groups = Path("/root/groups.txt")
     with open(groups, "w") as f:
@@ -1360,6 +1362,7 @@ def rnaseq(
         output_directory=custom_output_dir,
     )
     diff_introns = leafcutter(
+        run_splicing=run_splicing,
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
