@@ -788,7 +788,11 @@ def leafcutter(
 
     if run_splicing is False:
         # random file noop, hack until boolean conditionals work
-        return LatchFile("/root/README.md")
+        return (
+            LatchFile("/root/wf/__init__.py"),
+            LatchFile("/root/wf/__init__.py"),
+            LatchFile("/root/wf/__init__.py"),
+        )
 
     REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/Alternative Splicing (LeafCutter)/"
     """Remote path prefix for LatchFiles + LatchDirs"""
@@ -1372,7 +1376,7 @@ def rnaseq(
         ts_outputs=outputs,
         output_directory=custom_output_dir,
     )
-    diff_introns = leafcutter(
+    a, b, c = leafcutter(
         run_splicing=run_splicing,
         run_name=run_name,
         ts_outputs=outputs,
