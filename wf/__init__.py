@@ -780,7 +780,11 @@ def leafcutter(
     ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
     run_splicing: bool = False,
-) -> LatchFile:
+    manual_conditions: Annotated[
+        List[List[str]],
+        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
+    ] = [],
+) -> (LatchFile, LatchFile, LatchFile):
 
     if run_splicing is False:
         # random file noop, hack until boolean conditionals work
@@ -827,8 +831,8 @@ def leafcutter(
 
     groups = Path("/root/groups.txt")
     with open(groups, "w") as f:
-        for sample in sample_names:
-            f.write(f"{sample} A")  # TODO
+        for cond in manual_conditions:
+            f.write(f"{cond[0].replace(' ', '')}.bam {cond[1]}\n")
 
     run(
         [
@@ -842,7 +846,14 @@ def leafcutter(
         ]
     )
 
-    return LatchFile(cluster_counts, REMOTE_PATH + cluster_counts.name)
+    cluster_sig = Path("/root/leafcutter_ds_cluster_significance.txt")
+    cluster_es = Path("/root/leafcutter_ds_effect_sizes.txt")
+
+    return (
+        LatchFile(cluster_counts, REMOTE_PATH + cluster_counts.name),
+        cluster_sig,
+        cluster_es,
+    )
 
 
 class AlignmentTools(Enum):
@@ -1366,6 +1377,7 @@ def rnaseq(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
+        manual_conditions=manual_conditions,
     )
     deseq2_wf(
         report_name=run_name,
