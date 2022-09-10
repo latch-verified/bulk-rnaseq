@@ -15,8 +15,12 @@ from typing import Annotated, Iterable, List, Optional, Tuple, Union
 
 import lgenome
 from dataclasses_json import dataclass_json
+from flytekit import task
 from flytekit.core.annotation import FlyteAnnotation
 from flytekit.core.launch_plan import reference_launch_plan
+from flytekitplugins.pod import Pod
+from kubernetes.client.models import (V1Container, V1PodSpec,
+                                      V1ResourceRequirements, V1Toleration)
 from latch import (large_task, map_task, medium_task, message, small_task,
                    workflow)
 from latch.resources.launch_plan import LaunchPlan
@@ -26,6 +30,30 @@ from latch.types import LatchDir, LatchFile, file_glob
 # from latch.verified import deseq2_wf
 
 print = functools.partial(print, flush=True)
+
+
+def _get_96_spot_pod() -> Pod:
+    """[ "c6i.24xlarge", "c5.24xlarge", "c5.metal", "c5d.24xlarge", "c5d.metal" ]"""
+
+    primary_container = V1Container(name="primary")
+    resources = V1ResourceRequirements(
+        requests={"cpu": "90", "memory": "170Gi"},
+        limits={"cpu": "96", "memory": "192Gi"},
+    )
+    primary_container.resources = resources
+
+    return Pod(
+        pod_spec=V1PodSpec(
+            containers=[primary_container],
+            tolerations=[
+                V1Toleration(effect="NoSchedule", key="ng", value="cpu-96-spot")
+            ],
+        ),
+        primary_container_name="primary",
+    )
+
+
+large_spot_task = task(task_config=_get_96_spot_pod(), retries=3)
 
 
 def _capture_output(command: List[str]) -> Tuple[int, str]:
@@ -747,7 +775,7 @@ def count_matrix_and_multiqc(
 
 
 @medium_task
-def diff_splicing_analysis(
+def leafcutter(
     run_name: str,
     ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
@@ -764,24 +792,55 @@ def diff_splicing_analysis(
         },
     )
 
-    for tso in ts_outputs:
-        junction_file = Path(tso.junction_file.local_path).resolve()
-        print(f"local: {junction_file}")
+    all_juncfiles = Path("/root/juncs.txt")
+    sample_names = []
+    with open(all_juncfiles, "w") as f:
+        for tso in ts_outputs:
+            junc_file = Path(tso.junction_file.local_path)
+            sample_name = junc_file.name.replace(" ", "")
+            sanitized_junc_file = Path(tso.junction_file.local_path).rename(sample_name)
+            sample_names.append(sample_name)
+            print(f"local: {sanitized_junc_file.resolve()}")
+            f.write(f"{sanitized_junc_file.resolve()}\n")
 
-    # build juncfiles list
-    # intron clustering
-    # python leafcutter/clustering/leafcutter_cluster_regtools.py -j test_juncfiles.txt -m 50 -o foo -l 5000000 --nochromcheck=True
-    # build intron group list
-    # differential intron
-
-    import time
-
-    time.sleep(100000)
-
-    return LatchFile(
-        "/root/test.txt",
-        REMOTE_PATH + "test.txt",
+    cluster_counts = Path(f"/root/{run_name}_perind_numers.counts.gz")
+    run(
+        [
+            "python",
+            "/root/leafcutter/clustering/leafcutter_cluster_regtools.py",
+            "-j",
+            str(all_juncfiles),
+            "-m",
+            "50",
+            "-o",
+            run_name,
+            "-l",
+            "5000000",
+            "-k=True",  # Don't error on weird chromosome names
+        ]
     )
+
+    with open(cluster_counts) as f:
+        f.readline()
+
+    groups = Path("/root/groups.txt")
+    with open(groups, "w") as f:
+        for sample in sample_names:
+            f.write(f"{sample} A")  # TODO
+
+    run(
+        [
+            "/root/leafcutter/scripts/leafcutter_ds.R",
+            "--num_threads",
+            "30",
+            str(cluster_counts),
+            str(groups),
+            "--min_samples_per_intron=1",
+            "--min_samples_per_group=1",
+        ]
+    )
+
+    return LatchFile(cluster_counts, REMOTE_PATH + cluster_counts.name)
 
 
 class AlignmentTools(Enum):
@@ -909,6 +968,7 @@ def rnaseq(
     star_index: Optional[LatchFile] = None,
     salmon_index: Optional[LatchFile] = None,
     save_indices: bool = False,
+    run_splicing: bool = False,
     custom_output_dir: Optional[LatchDir] = None,
 ):
     """Perform alignment and quantification on Bulk RNA-Sequencing reads
@@ -1063,6 +1123,8 @@ def rnaseq(
                     flow:
                     - params:
                         - manual_conditions
+                    - params:
+                        - run_splicing
                 table:
                     display_name: File
                     _tmp_unwrap_optionals:
@@ -1076,6 +1138,8 @@ def rnaseq(
                         - conditions_table
                         - design_matrix_sample_id_column
                         - design_formula
+                    - params:
+                        - run_splicing
         - section: Alignment and Quantification
           flow:
             - text: >-
@@ -1262,6 +1326,11 @@ def rnaseq(
 
         output_location_fork:
 
+        run_splicing:
+
+          __metadata__:
+            display_name: Run Differential Splicing Analysis
+
         custom_output_dir:
           You can provide a custom location where this run's analysis outputs
           will be located.
@@ -1290,7 +1359,7 @@ def rnaseq(
         ts_outputs=outputs,
         output_directory=custom_output_dir,
     )
-    combined_junctions = bam_to_junction(
+    diff_introns = leafcutter(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
