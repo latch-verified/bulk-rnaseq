@@ -1,4 +1,4 @@
-FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base:9a7d-main
+FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base:dd8f-main
 
 RUN apt-get update --yes &&\
     apt-get install --yes --no-install-recommends wget software-properties-common dirmngr
@@ -74,7 +74,8 @@ RUN wget https://sourceforge.net/projects/libpng/files/zlib/1.2.9/zlib-1.2.9.tar
     cd zlib-1.2.9 &&\
     ./configure && make && make install
 
-RUN apt-get install git && git clone https://github.com/davidaknowles/leafcutter
+RUN apt-get install -y git 
+RUN git clone https://github.com/davidaknowles/leafcutter
 
 COPY gentrome.sh /root/gentrome.sh
 
