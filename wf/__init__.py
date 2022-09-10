@@ -851,8 +851,8 @@ def leafcutter(
 
     return (
         LatchFile(cluster_counts, REMOTE_PATH + cluster_counts.name),
-        cluster_sig,
-        cluster_es,
+        LatchFile(cluster_sig, REMOTE_PATH + cluster_sig.name),
+        LatchFile(cluster_es, REMOTE_PATH + cluster_es.name),
     )
 
 
