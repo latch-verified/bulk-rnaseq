@@ -425,7 +425,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     try:
         outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
     except TrimgaloreError as e:
-        print(f"Handling failure in trmming {input.sample_name} gracefully.")
+        print(f"Handling failure in trimming {input.sample_name} gracefully.")
         print(f"\tTrimming error ~ {e}")
         return None
 
@@ -663,11 +663,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         return None
 
     for unwanted in ("logs", "cmd_info.json"):
-        path = Path(f"{SALMON_DIR}/{unwanted}")
-        if "." in unwanted:
-            path.unlink()
-        else:
-            shutil.rmtree(path)
+        Path(f"{SALMON_DIR}/{unwanted}").resolve().unlink()
 
     junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
     return TrimgaloreSalmonOutput(
@@ -863,11 +859,6 @@ def leafcutter(
 class AlignmentTools(Enum):
     star_salmon = "Traditional Alignment + Quantification"
     salmon = "Selective Alignment + Quantification"
-
-
-@small_task
-def noop() -> None:
-    return None
 
 
 @reference_launch_plan(
@@ -1103,9 +1094,9 @@ def rnaseq(
         video_tutorial: https://www.loom.com/share/dfba09ba6f524722b5d829f2424a3a3f
         author:
             name: LatchBio
-            email:
-            github:
-        repository: github.com/latchbio/rnaseq
+            email: help@latch.bio
+            github: github.com/latchbio
+        repository: github.com/latch-verified/bulk-rnaseq
         license:
             id: MIT
         flow:
