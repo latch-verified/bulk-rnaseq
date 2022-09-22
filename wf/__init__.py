@@ -776,13 +776,14 @@ def leafcutter(
     ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
     run_splicing: bool = False,
+    run_diff_splicing: bool = False,
     manual_conditions: Annotated[
         List[List[str]],
         FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
     ] = [],
 ) -> (LatchFile, LatchFile, LatchFile):
 
-    if run_splicing is False:
+    if not (run_splicing or run_diff_splicing):
         # random file noop, hack until boolean conditionals work
         return (
             LatchFile("/root/wf/__init__.py"),
@@ -828,6 +829,14 @@ def leafcutter(
             "-k=True",  # Don't error on weird chromosome names
         ]
     )
+    
+    if run_diff_splicing:
+        # random file noop, hack until boolean conditionals work
+        return (
+            LatchFile(cluster_counts, REMOTE_PATH + cluster_counts.name),
+            LatchFile("/root/wf/__init__.py"),
+            LatchFile("/root/wf/__init__.py"),
+        )
 
     groups = Path("/root/groups.txt")
     with open(groups, "w") as f:
@@ -862,10 +871,10 @@ class AlignmentTools(Enum):
 
 
 @reference_launch_plan(
-    project="4107",
+    project="7482",
     domain="development",
     name="wf.__init__.deseq2_wf",
-    version="1.3.20-ef8193",
+    version="1.3.20-422e00",
 )
 def deseq2_wf(
     report_name: str,
@@ -924,6 +933,7 @@ def deseq2_wf(
         ),
     ] = [],
     number_of_genes_to_plot: int = 30,
+    run_diff_expr: bool = False,
 ) -> LatchDir:
     ...
 
@@ -977,6 +987,8 @@ def rnaseq(
     salmon_index: Optional[LatchFile] = None,
     save_indices: bool = False,
     run_splicing: bool = False,
+    run_diff_splicing: bool = False,
+    run_diff_expr: bool = False,
     custom_output_dir: Optional[LatchDir] = None,
 ):
     """Perform alignment and quantification on Bulk RNA-Sequencing reads
@@ -1109,19 +1121,19 @@ def rnaseq(
 
             - params:
                 - samples
-        - section: Sample Conditions for Differential Expression Analysis (Control vs Treatment, etc.)
+        - section: Sample Conditions for Differential Analysis (Control vs Treatment, etc.)
           flow:
             - text: >-
                   You can (optionally) group samples into condition groups so
-                  that downstream differential expression can be run on the
-                  resulting sample transcript counts. For example, labeling a
+                  that downstream differential expression/splicing can be run on
+                  the resulting sample transcript counts. For example, labeling a
                   subset of your samples as "Treatment" and another subset as
-                  "Control" will yield a list of transcripts/genes that are
+                  "Control" will yield a list of transcripts/genes/isoforms that are
                   statistically different between the two groups.
             - fork: conditions_source
               flows:
                 none:
-                    display_name: No Differential Expression
+                    display_name: No Differential Analysis
                     flow:
                     - text: >-
                           Select "Manual Input" or "File" to construct your
@@ -1132,7 +1144,8 @@ def rnaseq(
                     - params:
                         - manual_conditions
                     - params:
-                        - run_splicing
+                        - run_diff_expr
+                        - run_diff_splicing
                 table:
                     display_name: File
                     _tmp_unwrap_optionals:
@@ -1147,7 +1160,8 @@ def rnaseq(
                         - design_matrix_sample_id_column
                         - design_formula
                     - params:
-                        - run_splicing
+                        - run_diff_expr
+                        - run_diff_splicing
         - section: Alignment and Quantification
           flow:
             - text: >-
@@ -1191,6 +1205,13 @@ def rnaseq(
                                         - params:
                                             - salmon_index
                                             - custom_ref_trans
+        - section: Splicing analysis
+          flow:
+            - text: >-
+                  You can run leafcutter to identify multiple isoforms for your genes
+                  and estimate their abundance.
+            - params:
+                - run_splicing
         - section: Output Location
           flow:
           - params:
@@ -1334,7 +1355,17 @@ def rnaseq(
 
         output_location_fork:
 
+        run_diff_expr:
+
+          __metadata__:
+            display_name: Run Differential Expression Analysis
+
         run_splicing:
+
+          __metadata__:
+            display_name: Run Splicing Analysis
+
+        run_diff_splicing:
 
           __metadata__:
             display_name: Run Differential Splicing Analysis
@@ -1369,6 +1400,7 @@ def rnaseq(
     )
     a, b, c = leafcutter(
         run_splicing=run_splicing,
+        run_diff_splicing=run_diff_splicing,
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
@@ -1388,6 +1420,7 @@ def rnaseq(
         design_matrix_sample_id_column=design_matrix_sample_id_column,
         design_formula=design_formula,
         number_of_genes_to_plot=30,
+        run_diff_expr=run_diff_expr,
     )
 
 
