@@ -24,7 +24,6 @@ from kubernetes.client.models import (V1Container, V1PodSpec,
 from latch import (large_task, map_task, medium_task, message, small_task,
                    workflow)
 from latch.resources.launch_plan import LaunchPlan
-from latch.resources.tasks import cached_large_task
 from latch.types import LatchDir, LatchFile, file_glob
 
 # from latch.verified import deseq2_wf
@@ -136,20 +135,6 @@ class GenomeData:
 
 @dataclass_json
 @dataclass
-class TrimgaloreInput:
-    sample_name: str
-    replicate: Replicate
-    replicate_index: int
-    run_name: str
-    base_remote_output_dir: str
-    clip_r1: Optional[int]
-    clip_r2: Optional[int] = None
-    three_prime_clip_r1: Optional[int] = None
-    three_prime_clip_r2: Optional[int] = None
-
-
-@dataclass_json
-@dataclass
 class TrimgaloreOutput:
     sample_name: str
     trimmed_replicate: Replicate
@@ -179,6 +164,7 @@ class TrimgaloreSalmonInput:
     three_prime_clip_r1: Optional[int] = None
     three_prime_clip_r2: Optional[int] = None
     save_indices: bool = False
+    run_splicing: bool = False
 
 
 @dataclass_json
@@ -216,6 +202,7 @@ def prepare_inputs(
     custom_ref_genome: Optional[LatchFile] = None,
     custom_ref_trans: Optional[LatchFile] = None,
     custom_salmon_index: Optional[LatchFile] = None,
+    run_splicing: bool = False,
 ) -> List[TrimgaloreSalmonInput]:
     custom_names = []
     custom_files = []
@@ -246,6 +233,7 @@ def prepare_inputs(
             custom_names=custom_names,
             custom_files=custom_files,
             save_indices=save_indices,
+            run_splicing=run_splicing,
         )
         for sample in samples
     ]
@@ -285,6 +273,8 @@ def _remote_output_dir(custom_output_dir: Optional[LatchDir]) -> str:
     assert remote_path is not None
     if remote_path[-1] != "/":
         remote_path += "/"
+    if remote_path[:8] == "latch://":
+        remote_path = remote_path[8:]
     return remote_path
 
 
@@ -557,9 +547,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     quant_path = f"/root/{slugify(input.sample_name)}_quant.sf"
     salmon_quant = Path(f"{SALMON_DIR}/quant.sf").rename(quant_path)
 
-    make_juncs = True
-    junc_path = Path(f"/root/{input.sample_name}.bam.junc")
-    if make_juncs:
+    if input.run_splicing:
+        junc_path = Path(f"/root/{input.sample_name}.bam.junc")
         try:
             # TODO - gaw so bad
             print("\tDownloading STAR map.")
@@ -1360,6 +1349,7 @@ def rnaseq(
         custom_ref_trans=custom_ref_trans,
         custom_salmon_index=salmon_index,
         save_indices=save_indices,
+        run_splicing=run_splicing,
     )
     outputs = map_task(trimgalore_salmon)(input=inputs)
     count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
