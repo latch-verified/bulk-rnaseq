@@ -547,8 +547,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     quant_path = f"/root/{slugify(input.sample_name)}_quant.sf"
     salmon_quant = Path(f"{SALMON_DIR}/quant.sf").rename(quant_path)
 
+    junc_path = Path(f"/root/{input.sample_name}.bam.junc")
     if input.run_splicing:
-        junc_path = Path(f"/root/{input.sample_name}.bam.junc")
         try:
             # TODO - gaw so bad
             print("\tDownloading STAR map.")
@@ -654,7 +654,13 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     Path(f"{SALMON_DIR}/cmd_info.json").resolve().unlink()
     shutil.rmtree(Path(f"{SALMON_DIR}/logs").resolve())
 
-    junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
+    if input.run_splicing:
+        junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
+    else:
+        # temp, Optional field in json data class no work
+        junction_file = LatchFile(
+            "/root/wf/run_tximport.R", REMOTE_PATH + junc_path.name
+        )
     return TrimgaloreSalmonOutput(
         passed_salmon=True,
         passed_tximport=True,
