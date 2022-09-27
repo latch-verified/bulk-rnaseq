@@ -651,8 +651,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         print(f"Tximport error: {e}")
         return None
 
-    for unwanted in ("logs", "cmd_info.json"):
-        Path(f"{SALMON_DIR}/{unwanted}").resolve().unlink()
+    Path(f"{SALMON_DIR}/cmd_info.json").resolve().unlink()
+    shutil.rmtree(Path(f"{SALMON_DIR}/logs").resolve())
 
     junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
     return TrimgaloreSalmonOutput(
