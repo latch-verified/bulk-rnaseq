@@ -7,7 +7,8 @@ if (!require("BiocManager", quietly = TRUE)) {
 }
 
 BiocManager::install("tximport")
+install.packages("RCurl")
 BiocManager::install("GenomicFeatures")
 
-library(tximport)
-library(GenomicFeatures)
+library("tximport")
+library("GenomicFeatures")

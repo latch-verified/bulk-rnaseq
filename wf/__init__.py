@@ -17,15 +17,42 @@ import lgenome
 from dataclasses_json import dataclass_json
 from flytekit import task
 from flytekit.core.annotation import FlyteAnnotation
+from flytekit.core.launch_plan import reference_launch_plan
 from flytekitplugins.pod import Pod
 from kubernetes.client.models import (V1Container, V1PodSpec,
                                       V1ResourceRequirements, V1Toleration)
-from latch import map_task, message, small_task, workflow
+from latch import (large_task, map_task, medium_task, message, small_task,
+                   workflow)
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
-from latch.verified import deseq2_wf
+
+# from latch.verified import deseq2_wf
 
 print = functools.partial(print, flush=True)
+
+
+def _get_96_spot_pod() -> Pod:
+    """[ "c6i.24xlarge", "c5.24xlarge", "c5.metal", "c5d.24xlarge", "c5d.metal" ]"""
+
+    primary_container = V1Container(name="primary")
+    resources = V1ResourceRequirements(
+        requests={"cpu": "90", "memory": "170Gi"},
+        limits={"cpu": "96", "memory": "192Gi"},
+    )
+    primary_container.resources = resources
+
+    return Pod(
+        pod_spec=V1PodSpec(
+            containers=[primary_container],
+            tolerations=[
+                V1Toleration(effect="NoSchedule", key="ng", value="cpu-96-spot")
+            ],
+        ),
+        primary_container_name="primary",
+    )
+
+
+large_spot_task = task(task_config=_get_96_spot_pod(), retries=3)
 
 
 def _capture_output(command: List[str]) -> Tuple[int, str]:
@@ -58,30 +85,6 @@ def ___repr__(self):
 
 
 LatchFile.__repr__ = types.MethodType(___repr__, LatchFile)
-
-
-def _get_96_spot_pod() -> Pod:
-    """[ "c6i.24xlarge", "c5.24xlarge", "c5.metal", "c5d.24xlarge", "c5d.metal" ]"""
-
-    primary_container = V1Container(name="primary")
-    resources = V1ResourceRequirements(
-        requests={"cpu": "90", "memory": "170Gi"},
-        limits={"cpu": "96", "memory": "192Gi"},
-    )
-    primary_container.resources = resources
-
-    return Pod(
-        pod_spec=V1PodSpec(
-            containers=[primary_container],
-            tolerations=[
-                V1Toleration(effect="NoSchedule", key="ng", value="cpu-96-spot")
-            ],
-        ),
-        primary_container_name="primary",
-    )
-
-
-large_spot_task = task(task_config=_get_96_spot_pod(), retries=3)
 
 
 @dataclass_json
@@ -132,20 +135,6 @@ class GenomeData:
 
 @dataclass_json
 @dataclass
-class TrimgaloreInput:
-    sample_name: str
-    replicate: Replicate
-    replicate_index: int
-    run_name: str
-    base_remote_output_dir: str
-    clip_r1: Optional[int]
-    clip_r2: Optional[int] = None
-    three_prime_clip_r1: Optional[int] = None
-    three_prime_clip_r2: Optional[int] = None
-
-
-@dataclass_json
-@dataclass
 class TrimgaloreOutput:
     sample_name: str
     trimmed_replicate: Replicate
@@ -174,12 +163,8 @@ class TrimgaloreSalmonInput:
     clip_r2: Optional[int] = None
     three_prime_clip_r1: Optional[int] = None
     three_prime_clip_r2: Optional[int] = None
-    # custom_gtf: Optional[LatchFile] = None
-    # custom_ref_genome: Optional[LatchFile] = None
-    # custom_ref_trans: Optional[LatchFile] = None
-    # star_index: Optional[LatchFile] = None
-    # custom_salmon_index: Optional[LatchFile] = None
     save_indices: bool = False
+    run_splicing: bool = False
 
 
 @dataclass_json
@@ -188,18 +173,22 @@ class TrimgaloreSalmonOutput:
     passed_salmon: bool
     passed_tximport: bool
     sample_name: str
-    salmon_output: LatchDir
-    # quant: LatchFile
-    # genome_abundance: LatchFile
+    salmon_aux_output: LatchDir
+    salmon_quant_file: LatchFile
+    """Tab-separated transcript quantification file."""
+    gene_abundance_file: LatchFile
+    """Gene abundance file from tximport."""
     trimgalore_reports: List[LatchFile]
+    """Temporary field for junction file."""
+    junction_file: LatchFile
 
 
 def slugify(value: str) -> str:
-    return value.replace(" ", "_")
+    return value.lower().replace(" ", "_")
 
 
 @small_task
-def prepare_trimgalore_salmon_inputs(
+def prepare_inputs(
     samples: List[Sample],
     run_name: str,
     latch_genome: LatchGenome,
@@ -213,6 +202,7 @@ def prepare_trimgalore_salmon_inputs(
     custom_ref_genome: Optional[LatchFile] = None,
     custom_ref_trans: Optional[LatchFile] = None,
     custom_salmon_index: Optional[LatchFile] = None,
+    run_splicing: bool = False,
 ) -> List[TrimgaloreSalmonInput]:
     custom_names = []
     custom_files = []
@@ -243,6 +233,7 @@ def prepare_trimgalore_salmon_inputs(
             custom_names=custom_names,
             custom_files=custom_files,
             save_indices=save_indices,
+            run_splicing=run_splicing,
         )
         for sample in samples
     ]
@@ -277,11 +268,13 @@ def _concatenate_files(filepaths: Iterable[str], output_path: str) -> Path:
 
 def _remote_output_dir(custom_output_dir: Optional[LatchDir]) -> str:
     if custom_output_dir is None:
-        return "latch:///RNA-Seq Outputs/"
+        return "/RNA-Seq Outputs/"
     remote_path = custom_output_dir.remote_path
     assert remote_path is not None
     if remote_path[-1] != "/":
         remote_path += "/"
+    if remote_path[:8] == "latch://":
+        remote_path = remote_path[8:]
     return remote_path
 
 
@@ -334,7 +327,7 @@ def do_trimgalore(
     def remote(middle: str) -> str:
         base = f"{ts_input.base_remote_output_dir}{ts_input.run_name}"
         tail = f"{ts_input.sample_name}/replicate_{replicate_index}/"
-        return f"{base}/Quality Control Data/Trimming {middle} (TrimGalore)/{tail}"
+        return f"latch:///{base}/Quality Control Data/Trimming {middle} (TrimGalore)/{tail}"
 
     reads_directory = remote("Reads")
     if isinstance(reads, SingleEndReads):
@@ -409,8 +402,23 @@ def _build_index(gentrome: Path) -> Path:
 
 
 @large_spot_task
-def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
-    outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
+def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmonOutput]:
+
+    SALMON_DIR = "/root/salmon_quant/"
+    """Default location for salmon outputs."""
+
+    REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
+    """Remote path prefix for LatchFiles + LatchDirs"""
+
+    #
+    # Trimgalore (separate!)
+    try:
+        outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
+    except TrimgaloreError as e:
+        print(f"Handling failure in trimming {input.sample_name} gracefully.")
+        print(f"\tTrimming error ~ {e}")
+        return None
+
     trimmed_replicates = [x[1] for x in outputs]
     trimgalore_reports = [y for x in outputs for y in x[0]]
 
@@ -430,25 +438,11 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         elif name == "gtf":
             custom_gtf = file
 
-    def local(suffix: Optional[str] = None) -> str:
-        salmon_path = "/root/salmon_quant/"
-        if suffix is not None:
-            salmon_path += suffix
-        return salmon_path
-
-    def remote(suffix: Optional[str] = None) -> str:
-        i = input
-        path = f"{i.base_remote_output_dir}{i.run_name}/Quantification (salmon)/{i.sample_name}/"
-        if suffix is not None:
-            path += suffix
-        return path
-
     gtf_path = None
     if custom_gtf is not None:
         gtf_path = _unzip_if_needed(custom_gtf.local_path)
 
     if custom_salmon_index is not None:
-        # TODO: validate provided index...
         run(["tar", "-xzvf", custom_salmon_index.local_path])
 
         if not Path("salmon_index").is_dir():
@@ -489,63 +483,147 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
         r1, r2 = merged
         reads = ["-1", str(r1), "-2", str(r2)]
 
-    # Delete unneeded files to free space
+    # Free space.
     for rep in trimmed_replicates:
         os.remove(rep.r1.path)
         if isinstance(rep, PairedEndReads):
             os.remove(rep.r2.path)
 
-    returncode, stdout = _capture_output(
-        [
-            "salmon",
-            "quant",
-            "-i",
-            str(local_index),
-            "-l",
-            "A",
-            *reads,
-            "--threads",
-            str(96),
-            "--validateMappings",
-            "-o",
-            local(),
-        ]
-    )
+    #
+    # Salmon (separate!)
 
-    # Delete unneeded files to free space
+    quant_cmd = [
+        "salmon",
+        "quant",
+        "-i",
+        str(local_index),
+        "-l",
+        "A",
+        *reads,
+        "--threads",
+        str(96),
+        "--validateMappings",
+        "-o",
+        SALMON_DIR,
+    ]
+
+    try:
+        returncode, stdout = _capture_output(quant_cmd)
+    except subprocess.CalledProcessError as _:
+
+        def parse_salmon_warning(
+            alert_message: str, input: TrimgaloreSalmonInput
+        ) -> str:
+            if "of fragments were shorter than the k" in alert_message:
+                return alert_message
+            elif "Detected a *potential* strand bias" in alert_message:
+                default = "salmon_quant/lib_format_counts.json"
+                return alert_message.replace(
+                    default, REMOTE_PATH + "lib_format_counts.json"
+                )
+            return alert_message
+
+        identifier = f"sample {input.sample_name}"
+        errors = []
+        for alert_type, alert_message in re.findall(_SALMON_ALERT_PATTERN, stdout):
+            title = f"Salmon {alert_type} for {identifier}"
+            if alert_type == "warning":
+                message(
+                    "warning",
+                    {
+                        "title": title,
+                        "body": parse_salmon_warning(alert_message, input),
+                    },
+                )
+            else:
+                message("error", {"title": title, "body": alert_message})
+                errors.append(alert_message)
+
+        if returncode != 0:
+            deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
+            return None
+
+    # Also moves count files out of auxilliary directory.
+    quant_path = f"/root/{slugify(input.sample_name)}_quant.sf"
+    salmon_quant = Path(f"{SALMON_DIR}/quant.sf").rename(quant_path)
+
+    junc_path = Path(f"/root/{input.sample_name}.bam.junc")
+    if input.run_splicing:
+        try:
+            # TODO - gaw so bad
+            print("\tDownloading STAR map.")
+            run(
+                [
+                    "aws",
+                    "s3",
+                    "sync",
+                    "s3://latch-genomes/Homo_sapiens/RefSeq/GRCh38.p14/STAR_index/",
+                    "STAR_index",
+                    "--no-progress",  # shh
+                ]
+            )
+
+            print(f"\tMaking splice-aware alignment map {input.sample_name}")
+            run(
+                [
+                    "STAR",
+                    "--genomeDir",
+                    "STAR_index",
+                    "--twopassMode",
+                    "Basic",
+                    "--outSAMstrandField",
+                    "intronMotif",
+                    "--outSAMtype",
+                    "BAM",
+                    "SortedByCoordinate",
+                    "--readFilesIn",
+                    *[str(read) for read in merged],
+                    "--runThreadN",
+                    "96",
+                ]
+            )
+
+            print(f"\tIndexing splice-aware alignment map {input.sample_name}")
+            run(
+                [
+                    "samtools",
+                    "index",
+                    "Aligned.sortedByCoord.out.bam",
+                    "-@",
+                    "96",
+                ]
+            )
+
+            print(f"\tIndexing splice-aware alignment map {input.sample_name}")
+            run(
+                [
+                    "regtools",
+                    "junctions",
+                    "extract",
+                    "Aligned.sortedByCoord.out.bam",
+                    "-s",
+                    "0",  # TODO strandedness
+                    "-o",
+                    str(junc_path),
+                ]
+            )
+
+            print("\tDone with junctions")
+
+        except subprocess.CalledProcessError as e:
+            message(
+                "error",
+                {
+                    "title": f"junction construction error for {input.sample_name}",
+                    "body": str(e),
+                },
+            )
+            print(f"Error building junction file: {e}")
+            return None
+
+    # Free space.
     for path in merged:
         os.remove(path)
-
-    def parse_salmon_warning(alert_message: str, input: TrimgaloreSalmonInput) -> str:
-        if "of fragments were shorter than the k" in alert_message:
-            # percent = float(alert_message.split("%")[0])
-            # min_read_size = int(alert_message.split(".")[-2].split(" ")[-1])
-            return alert_message
-        elif "Detected a *potential* strand bias" in alert_message:
-            default = "salmon_quant/lib_format_counts.json"
-            return alert_message.replace(default, remote("lib_format_counts.json"))
-        return alert_message
-
-    # Add info messages too?
-    identifier = f"sample {input.sample_name}"
-    errors = []
-    for alert_type, alert_message in re.findall(_SALMON_ALERT_PATTERN, stdout):
-        title = f"Salmon {alert_type} for {identifier}"
-        if alert_type == "warning":
-            message(
-                "warning",
-                {"title": title, "body": parse_salmon_warning(alert_message, input)},
-            )
-        else:
-            message("error", {"title": title, "body": alert_message})
-            errors.append(alert_message)
-
-    if returncode != 0:
-        deets = "\n".join(["Error(s) occurred while running Salmon", *errors])
-        raise RuntimeError(deets)
-
-    quant_name = local(f"{slugify(input.sample_name)}_quant.sf")
-    salmon_quant = Path(local("quant.sf")).rename(quant_name)
 
     try:
         gtf_path = (
@@ -554,7 +632,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
             else gm.download_gtf(show_progress=False)
         )
 
-        tximport_output_path = local("genome_abundance.sf")
+        tximport_output_path = Path(f"{SALMON_DIR}/gene_abundance.sf")
         subprocess.run(
             [
                 "/root/wf/run_tximport.R",
@@ -565,28 +643,34 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> TrimgaloreSalmonOutput:
             ],
             capture_output=True,
         )
-
-        ga_name = local(f"{slugify(input.sample_name)}_genome_abundance.sf")
-        Path(tximport_output_path).rename(ga_name)
     except subprocess.CalledProcessError as e:
         message("error", {"title": f"tximport error for {identifier}", "body": str(e)})
         print(
             f"Unable to produce gene mapping from tximport. Error surfaced from tximport -> {e}"
         )
-        raise RuntimeError(f"Tximport error: {e}")
+        print(f"Tximport error: {e}")
+        return None
 
-    for unwanted in ("logs", "cmd_info.json"):
-        path = Path(local(unwanted))
-        if "." in unwanted:
-            path.unlink()
-        else:
-            shutil.rmtree(path)
+    Path(f"{SALMON_DIR}/cmd_info.json").resolve().unlink()
+    shutil.rmtree(Path(f"{SALMON_DIR}/logs").resolve())
 
+    if input.run_splicing:
+        junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
+    else:
+        # temp, Optional field in json data class no work
+        junction_file = LatchFile(
+            "/root/wf/run_tximport.R", REMOTE_PATH + junc_path.name
+        )
     return TrimgaloreSalmonOutput(
         passed_salmon=True,
         passed_tximport=True,
         sample_name=input.sample_name,
-        salmon_output=LatchDir(local(), remote()),
+        salmon_aux_output=LatchDir(SALMON_DIR, REMOTE_PATH),
+        salmon_quant_file=LatchFile(salmon_quant, REMOTE_PATH + salmon_quant.name),
+        junction_file=junction_file,
+        gene_abundance_file=LatchFile(
+            tximport_output_path, REMOTE_PATH + tximport_output_path.name
+        ),
         trimgalore_reports=trimgalore_reports,
     )
 
@@ -611,76 +695,62 @@ _SALMON_ALERT_PATTERN = re.compile(r"\[(warning|error)\] (.+?)(?:\[\d{4}|$)", re
 _COUNT_TABLE_GENE_ID_COLUMN = "gene_id"
 
 
-@small_task
+@medium_task
 def count_matrix_and_multiqc(
     run_name: str,
-    ts_outputs: List[TrimgaloreSalmonOutput],
+    ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
-    latch_genome: LatchGenome,
-    custom_gtf: Optional[LatchFile] = None,
 ) -> (Optional[LatchFile], Optional[LatchFile]):
 
     count_matrix_file = None
     multiqc_report_file = None
 
-    Path("/root/inputs").mkdir(parents=True)
-    paths = [
-        Path(x.salmon_output.local_path).rename(f"/root/inputs/{x.sample_name}")
-        for x in ts_outputs
-    ]
+    REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/"
+    """Remote path prefix for LatchFiles + LatchDirs"""
 
-    def remote(suffix: str):
-        return _remote_output_dir(output_directory) + run_name + "/" + suffix
+    ts_outputs = [x for x in ts_outputs if x and x.passed_tximport]
+    message(
+        "info",
+        {
+            "title": "Generating count matrix from successful samples",
+            "body": "\n".join(f"- {x.sample_name}" for x in ts_outputs),
+        },
+    )
 
-    # Create combined count matrix
-    if all(x.passed_tximport for x in ts_outputs):
-        message(
-            "info",
-            {
-                "title": "Generating count matrix from all samples",
-                "body": "\n".join(f"- {x.sample_name}" for x in ts_outputs),
-            },
+    combined_counts = defaultdict(dict)
+    for tso in ts_outputs:
+        gene_abundance_file = Path(tso.gene_abundance_file.local_path).resolve()
+        with gene_abundance_file.open("r") as f:
+            for row in csv.DictReader(f, dialect=csv.excel_tab):
+                gene_name = row["Name"]
+                combined_counts[gene_name][tso.sample_name] = row["NumReads"]
+
+    raw_count_table_path = Path("./counts.tsv").resolve()
+    with raw_count_table_path.open("w") as file:
+        sample_names = (x.sample_name for x in ts_outputs)
+        writer = csv.DictWriter(
+            file,
+            [_COUNT_TABLE_GENE_ID_COLUMN, *sample_names],
+            delimiter="\t",
         )
+        writer.writeheader()
+        for gene_id, data in combined_counts.items():
+            data[_COUNT_TABLE_GENE_ID_COLUMN] = gene_id
+            writer.writerow(data)
 
-        combined_counts = defaultdict(dict)
-        for output, path in zip(ts_outputs, paths):
-            genome_abundance_file = next(path.glob("*genome_abundance.sf"))
-            with genome_abundance_file.open("r") as f:
-                for row in csv.DictReader(f, dialect=csv.excel_tab):
-                    gene_name = row["Name"]
-                    combined_counts[gene_name][output.sample_name] = row["NumReads"]
-
-        raw_count_table_path = Path("./counts.tsv").resolve()
-        with raw_count_table_path.open("w") as file:
-            sample_names = (x.sample_name for x in ts_outputs)
-            writer = csv.DictWriter(
-                file,
-                [_COUNT_TABLE_GENE_ID_COLUMN, *sample_names],
-                delimiter="\t",
-            )
-            writer.writeheader()
-            for gene_id, data in combined_counts.items():
-                data[_COUNT_TABLE_GENE_ID_COLUMN] = gene_id
-                writer.writerow(data)
-
-        count_matrix_file = LatchFile(
-            str(raw_count_table_path),
-            remote("Quantification (salmon)/counts.tsv"),
-        )
-    else:
-        message(
-            "warning",
-            {
-                "title": "Unable to create combined count matrix",
-                "body": "Some samples failed in the earlier step",
-            },
-        )
+    count_matrix_file = LatchFile(
+        str(raw_count_table_path),
+        REMOTE_PATH + "Quantification (salmon)/counts.tsv",
+    )
 
     try:
-        subprocess.run(["multiqc", *paths], check=True)
+        aux_paths = [
+            str(Path(x.salmon_aux_output.local_path).resolve()) for x in ts_outputs
+        ]
+        subprocess.run(["multiqc", *aux_paths], check=True)
         multiqc_report_file = LatchFile(
             "/root/multiqc_report.html",
-            remote("multiqc_report.html"),
+            REMOTE_PATH + "multiqc_report.html",
         )
     except subprocess.CalledProcessError as e:
         print(f"Error occurred while generating MultiQC report -> {e}")
@@ -695,9 +765,162 @@ def count_matrix_and_multiqc(
     return count_matrix_file, multiqc_report_file
 
 
+@medium_task
+def leafcutter(
+    run_name: str,
+    ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
+    output_directory: Optional[LatchDir],
+    run_splicing: bool = False,
+    manual_conditions: Annotated[
+        List[List[str]],
+        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
+    ] = [],
+) -> (LatchFile, LatchFile, LatchFile):
+
+    if run_splicing is False:
+        # random file noop, hack until boolean conditionals work
+        return (
+            LatchFile("/root/wf/__init__.py"),
+            LatchFile("/root/wf/__init__.py"),
+            LatchFile("/root/wf/__init__.py"),
+        )
+
+    REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/Alternative Splicing (LeafCutter)/"
+    """Remote path prefix for LatchFiles + LatchDirs"""
+
+    message(
+        "info",
+        {
+            "title": "Generating alternative splicing junction file from all samples",
+            "body": "\n".join(f"- {x.sample_name}" for x in ts_outputs),
+        },
+    )
+
+    all_juncfiles = Path("/root/juncs.txt")
+    sample_names = []
+    with open(all_juncfiles, "w") as f:
+        for tso in ts_outputs:
+            junc_file = Path(tso.junction_file.local_path)
+            sample_name = junc_file.name.replace(" ", "")
+            sanitized_junc_file = Path(tso.junction_file.local_path).rename(sample_name)
+            sample_names.append(sample_name)
+            print(f"local: {sanitized_junc_file.resolve()}")
+            f.write(f"{sanitized_junc_file.resolve()}\n")
+
+    cluster_counts = Path(f"/root/{run_name}_perind_numers.counts.gz")
+    run(
+        [
+            "python",
+            "/root/leafcutter/clustering/leafcutter_cluster_regtools.py",
+            "-j",
+            str(all_juncfiles),
+            "-m",
+            "50",
+            "-o",
+            run_name,
+            "-l",
+            "5000000",
+            "-k=True",  # Don't error on weird chromosome names
+        ]
+    )
+
+    groups = Path("/root/groups.txt")
+    with open(groups, "w") as f:
+        for cond in manual_conditions:
+            f.write(f"{cond[0].replace(' ', '')}.bam {cond[1]}\n")
+
+    run(
+        [
+            "/root/leafcutter/scripts/leafcutter_ds.R",
+            "--num_threads",
+            "30",
+            str(cluster_counts),
+            str(groups),
+            "--min_samples_per_intron=1",
+            "--min_samples_per_group=1",
+        ]
+    )
+
+    cluster_sig = Path("/root/leafcutter_ds_cluster_significance.txt")
+    cluster_es = Path("/root/leafcutter_ds_effect_sizes.txt")
+
+    return (
+        LatchFile(cluster_counts, REMOTE_PATH + cluster_counts.name),
+        LatchFile(cluster_sig, REMOTE_PATH + cluster_sig.name),
+        LatchFile(cluster_es, REMOTE_PATH + cluster_es.name),
+    )
+
+
 class AlignmentTools(Enum):
     star_salmon = "Traditional Alignment + Quantification"
     salmon = "Selective Alignment + Quantification"
+
+
+@reference_launch_plan(
+    project="4107",
+    domain="development",
+    name="wf.__init__.deseq2_wf",
+    version="1.3.21-163c65",
+)
+def deseq2_wf(
+    report_name: str,
+    count_table_source: str = "single",
+    raw_count_table: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "_tmp_hack_deseq2": "counts_table",
+                    "rules": [
+                        {
+                            "regex": r".*\.(csv|tsv|xlsx)$",
+                            "message": "Expected a CSV, TSV, or XLSX file",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
+    raw_count_tables: List[LatchFile] = [],
+    count_table_gene_id_column: str = "gene_id",
+    output_location_type: str = "default",
+    output_location: Optional[LatchDir] = None,
+    conditions_source: str = "manual",
+    manual_conditions: Annotated[
+        List[List[str]],
+        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
+    ] = [],
+    conditions_table: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "_tmp_hack_deseq2": "design_matrix",
+                    "rules": [
+                        {
+                            "regex": r".*\.(csv|tsv|xlsx)$",
+                            "message": "Expected a CSV, TSV, or XLSX file",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
+    design_matrix_sample_id_column: Optional[
+        Annotated[str, FlyteAnnotation({"_tmp_hack_deseq2": "design_id_column"})]
+    ] = None,
+    design_formula: Annotated[
+        List[List[str]],
+        FlyteAnnotation(
+            {
+                "_tmp_hack_deseq2": "design_formula",
+                "_tmp_hack_deseq2_allow_clustering": True,
+            }
+        ),
+    ] = [],
+    number_of_genes_to_plot: int = 30,
+) -> LatchDir:
+    ...
 
 
 @workflow
@@ -748,6 +971,7 @@ def rnaseq(
     star_index: Optional[LatchFile] = None,
     salmon_index: Optional[LatchFile] = None,
     save_indices: bool = False,
+    run_splicing: bool = False,
     custom_output_dir: Optional[LatchDir] = None,
 ):
     """Perform alignment and quantification on Bulk RNA-Sequencing reads
@@ -865,8 +1089,8 @@ def rnaseq(
         video_tutorial: https://www.loom.com/share/dfba09ba6f524722b5d829f2424a3a3f
         author:
             name: LatchBio
-            email:
-            github:
+            email: help@latch.bio
+            github: github.com/latchbio
         repository: github.com/latch-verified/bulk-rnaseq
         license:
             id: MIT
@@ -902,6 +1126,8 @@ def rnaseq(
                     flow:
                     - params:
                         - manual_conditions
+                    - params:
+                        - run_splicing
                 table:
                     display_name: File
                     _tmp_unwrap_optionals:
@@ -915,6 +1141,8 @@ def rnaseq(
                         - conditions_table
                         - design_matrix_sample_id_column
                         - design_formula
+                    - params:
+                        - run_splicing
         - section: Alignment and Quantification
           flow:
             - text: >-
@@ -1101,6 +1329,11 @@ def rnaseq(
 
         output_location_fork:
 
+        run_splicing:
+
+          __metadata__:
+            display_name: Run Differential Splicing Analysis
+
         custom_output_dir:
           You can provide a custom location where this run's analysis outputs
           will be located.
@@ -1108,7 +1341,7 @@ def rnaseq(
           __metadata__:
             display_name: Custom Output Location
     """
-    inputs = prepare_trimgalore_salmon_inputs(
+    inputs = prepare_inputs(
         samples=samples,
         run_name=run_name,
         clip_r1=None,
@@ -1122,14 +1355,20 @@ def rnaseq(
         custom_ref_trans=custom_ref_trans,
         custom_salmon_index=salmon_index,
         save_indices=save_indices,
+        run_splicing=run_splicing,
     )
     outputs = map_task(trimgalore_salmon)(input=inputs)
     count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
-        latch_genome=latch_genome,
-        custom_gtf=custom_gtf,
+    )
+    a, b, c = leafcutter(
+        run_splicing=run_splicing,
+        run_name=run_name,
+        ts_outputs=outputs,
+        output_directory=custom_output_dir,
+        manual_conditions=manual_conditions,
     )
     deseq2_wf(
         report_name=run_name,
@@ -1147,6 +1386,27 @@ def rnaseq(
         number_of_genes_to_plot=30,
     )
 
+
+LaunchPlan(
+    rnaseq,
+    "Small Data - 10K Human Reads",
+    {
+        "samples": [
+            Sample(
+                name="Test",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/small-test/10k_reads_human.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+        ],
+        "run_name": "Small Test",
+    },
+)
 
 LaunchPlan(
     rnaseq,
