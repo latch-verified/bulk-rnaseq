@@ -8,19 +8,22 @@ import shutil
 import subprocess
 import types
 from collections import defaultdict
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Iterable, List, Optional, Tuple, Union
 
-import lgenome
-from dataclasses_json import dataclass_json
 from flytekit.core.annotation import FlyteAnnotation
 from flytekit.core.launch_plan import reference_launch_plan
-from latch import (large_task, map_task, medium_task, message, small_task,
-                   workflow)
+from latch import large_task, map_task, medium_task, message, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
+
+from .errors import TrimgaloreError
+from .models import (LatchGenome, PairedEndReads, Replicate, Sample,
+                     SingleEndReads, Strandedness, TrimgaloreSalmonInput,
+                     TrimgaloreSalmonOutput)
+from .prepare_inputs import prepare_inputs
+from .utils import run
 
 print = functools.partial(print, flush=True)
 
@@ -45,10 +48,6 @@ def _capture_output(command: List[str]) -> Tuple[int, str]:
     return returncode, "\n".join(captured_stdout)
 
 
-def run(command: List[str], check: bool = True, capture_output: bool = False):
-    return subprocess.run(command, check=check, capture_output=capture_output)
-
-
 # TODO - patch latch with proper def __repr__ -> str
 def ___repr__(self):
     return str(self.local_path)
@@ -57,186 +56,8 @@ def ___repr__(self):
 LatchFile.__repr__ = types.MethodType(___repr__, LatchFile)
 
 
-@dataclass_json
-@dataclass
-class SingleEndReads:
-    r1: LatchFile
-
-
-@dataclass_json
-@dataclass
-class PairedEndReads:
-    r1: LatchFile
-    r2: LatchFile
-
-
-class ReadType(Enum):
-    single = "single"
-    paired = "paired"
-
-
-class Strandedness(Enum):
-    auto = "auto"
-
-
-Replicate = Union[SingleEndReads, PairedEndReads]
-
-
-@dataclass_json
-@dataclass
-class Sample:
-    name: str
-    strandedness: Strandedness
-    replicates: List[Replicate]
-
-
-class LatchGenome(Enum):
-    RefSeq_hg38_p14 = "Homo sapiens (RefSeq hg38.p14)"
-    RefSeq_T2T_CHM13v2_0 = "Homo sapiens (RefSeq T2T-CHM13v2.0)"
-    RefSeq_R64 = "Saccharomyces cerevisiae (RefSeq R64)"
-    RefSeq_GRCm39 = "Mus musculus (RefSeq GRCm39)"
-
-
-@dataclass_json
-@dataclass
-class GenomeData:
-    gtf: LatchFile
-
-
-@dataclass_json
-@dataclass
-class TrimgaloreOutput:
-    sample_name: str
-    trimmed_replicate: Replicate
-    reports: List[LatchFile]
-
-
-@dataclass_json
-@dataclass
-class MergedSample:
-    name: str
-    reads: Replicate
-    strandedness: Strandedness
-
-
-@dataclass_json
-@dataclass
-class TrimgaloreSalmonInput:
-    sample_name: str
-    replicates: List[Replicate]
-    run_name: str
-    base_remote_output_dir: str
-
-    gtf: LatchFile
-    salmon_index: LatchDir
-
-    clip_r1: Optional[int] = None
-    clip_r2: Optional[int] = None
-    three_prime_clip_r1: Optional[int] = None
-    three_prime_clip_r2: Optional[int] = None
-    save_indices: bool = False
-    run_splicing: bool = False
-
-
-@dataclass_json
-@dataclass
-class TrimgaloreSalmonOutput:
-    passed_salmon: bool
-    passed_tximport: bool
-    sample_name: str
-    salmon_aux_output: LatchDir
-    salmon_quant_file: LatchFile
-    """Tab-separated transcript quantification file."""
-    gene_abundance_file: LatchFile
-    """Gene abundance file from tximport."""
-    trimgalore_reports: List[LatchFile]
-    """Temporary field for junction file."""
-    junction_file: LatchFile
-
-
 def slugify(value: str) -> str:
     return value.lower().replace(" ", "_")
-
-
-@small_task
-def prepare_inputs(
-    samples: List[Sample],
-    run_name: str,
-    latch_genome: LatchGenome,
-    save_indices: bool,
-    clip_r1: Optional[int] = None,
-    clip_r2: Optional[int] = None,
-    three_prime_clip_r1: Optional[int] = None,
-    three_prime_clip_r2: Optional[int] = None,
-    custom_output_dir: Optional[LatchDir] = None,
-    custom_gtf: Optional[LatchFile] = None,
-    custom_ref_genome: Optional[LatchFile] = None,
-    custom_ref_trans: Optional[LatchFile] = None,
-    custom_salmon_index: Optional[LatchFile] = None,
-    run_splicing: bool = False,
-) -> List[TrimgaloreSalmonInput]:
-    """Prepare all reference files one time.
-
-    This includes building custom indices or downloading managed files.
-    """
-
-    gm = lgenome.GenomeManager(latch_genome)
-
-    gtf_path = (
-        _unzip_if_needed(custom_gtf.local_path)
-        if custom_gtf is not None
-        else gm.download_gtf(show_progress=False)
-    )
-
-    if custom_salmon_index is not None:
-
-        run(["tar", "-xzvf", custom_salmon_index.local_path])
-
-        if not Path("salmon_index").is_dir():
-            body = "The custom Salmon index provided must be a directory named 'salmon_index'"
-            message("error", {"title": "Invalid custom Salmon index", "body": body})
-            raise MalformedSalmonIndex(body)
-
-        salmon_index_path = Path("salmon_index")
-
-    elif custom_ref_genome is not None:
-        if custom_ref_trans is None and custom_gtf is None:
-            body = (
-                "Both a custom reference genome and GTF file need to be provided "
-                "to build a local index for Salmon"
-            )
-            message("error", {"title": "Unable to build local index", "body": body})
-            raise InsufficientCustomGenomeResources(body)
-
-        ref_genome_path = _unzip_if_needed(custom_ref_genome.local_path)
-
-        if custom_ref_trans is None:
-            ref_trans = _build_transcriptome(ref_genome_path, gtf_path)
-        else:
-            ref_trans = _unzip_if_needed(custom_ref_trans.local_path)
-
-        gentrome = _build_gentrome(ref_genome_path, ref_trans)
-        salmon_index_path = _build_index(gentrome)
-    else:
-        salmon_index_path = gm.download_salmon_index(show_progress=False)
-
-    return [
-        TrimgaloreSalmonInput(
-            sample_name=sample.name,
-            replicates=sample.replicates,
-            run_name=run_name,
-            base_remote_output_dir=_remote_output_dir(custom_output_dir),
-            clip_r1=clip_r1,
-            clip_r2=clip_r2,
-            three_prime_clip_r1=three_prime_clip_r1,
-            three_prime_clip_r2=three_prime_clip_r2,
-            gtf=LatchFile(gtf_path),
-            salmon_index=LatchDir(salmon_index_path),
-            save_indices=save_indices,
-            run_splicing=run_splicing,
-        )
-        for sample in samples
-    ]
 
 
 def _merge_replicates(
@@ -276,10 +97,6 @@ def _remote_output_dir(custom_output_dir: Optional[LatchDir]) -> str:
     if remote_path[:8] == "latch://":
         remote_path = remote_path[8:]
     return remote_path
-
-
-class TrimgaloreError(Exception):
-    pass
 
 
 def do_trimgalore(
@@ -347,58 +164,6 @@ def do_trimgalore(
     reports = file_glob("*trimming_report.txt", reports_directory)
 
     return reports, trimmed_replicate
-
-
-def _build_gentrome(genome: Path, transcript: Path) -> Path:
-    run(["/root/gentrome.sh", str(genome), str(transcript)])
-    return Path("/root/gentrome.fa")
-
-
-def _unzip_if_needed(path: Path):
-    is_gzipped = str(path).endswith(".gz")
-
-    if is_gzipped:
-        # Gunzip by default deletes .gz file; no need to manually delete
-        run(["gunzip", str(path)])
-        unzipped_path_string = str(path).removesuffix(".gz")
-        return Path(unzipped_path_string)
-
-    return path
-
-
-def _build_transcriptome(genome: Path, gtf: Path) -> Path:
-    run(
-        [
-            "/root/RSEM-1.3.3/rsem-prepare-reference",
-            "--gtf",
-            str(gtf),
-            "--num-threads",
-            "96",
-            str(genome),
-            "genome",
-        ]
-    )
-    return Path("/root/genome.transcripts.fa")
-
-
-def _build_index(gentrome: Path) -> Path:
-    run(
-        [
-            "salmon",
-            "index",
-            "-t",
-            str(gentrome),
-            "-i",
-            "salmon_index",
-            "--decoys",
-            "decoys.txt",  # Comes from gentrome.sh
-            "-k",
-            "31",
-            "--threads",
-            "96",
-        ]
-    )
-    return Path("/root/salmon_index")
 
 
 @large_task
@@ -614,18 +379,6 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         ),
         trimgalore_reports=trimgalore_reports,
     )
-
-
-class InsufficientCustomGenomeResources(Exception):
-    pass
-
-
-class MalformedSalmonIndex(Exception):
-    pass
-
-
-class SalmonError(Exception):
-    pass
 
 
 # Each Salmon warning or error log starts with a timestamp surrounded in square
