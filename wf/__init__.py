@@ -23,7 +23,7 @@ from .models import (LatchGenome, PairedEndReads, Replicate, Sample,
                      SingleEndReads, Strandedness, TrimgaloreSalmonInput,
                      TrimgaloreSalmonOutput)
 from .prepare_inputs import prepare_inputs
-from .utils import run
+from .utils import remote_output_dir, run
 
 print = functools.partial(print, flush=True)
 
@@ -85,18 +85,6 @@ def _concatenate_files(filepaths: Iterable[str], output_path: str) -> Path:
             with open(p, "r") as f:
                 shutil.copyfileobj(f, output_file)
     return path
-
-
-def _remote_output_dir(custom_output_dir: Optional[LatchDir]) -> str:
-    if custom_output_dir is None:
-        return "/RNA-Seq Outputs/"
-    remote_path = custom_output_dir.remote_path
-    assert remote_path is not None
-    if remote_path[-1] != "/":
-        remote_path += "/"
-    if remote_path[:8] == "latch://":
-        remote_path = remote_path[8:]
-    return remote_path
 
 
 def do_trimgalore(
@@ -399,7 +387,7 @@ def count_matrix_and_multiqc(
     count_matrix_file = None
     multiqc_report_file = None
 
-    REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/"
+    REMOTE_PATH = f"latch:///{remote_output_dir(output_directory)}{run_name}/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     ts_outputs = [x for x in ts_outputs if x and x.passed_tximport]
@@ -479,7 +467,7 @@ def leafcutter(
             LatchFile("/root/wf/__init__.py"),
         )
 
-    REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/Alternative Splicing (LeafCutter)/"
+    REMOTE_PATH = f"latch:///{remote_output_dir(output_directory)}{run_name}/Alternative Splicing (LeafCutter)/"
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     message(

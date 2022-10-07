@@ -7,7 +7,7 @@ from latch.types import LatchDir, LatchFile
 
 from .errors import InsufficientCustomGenomeResources, MalformedSalmonIndex
 from .models import LatchGenome, Sample, TrimgaloreSalmonInput
-from .utils import run
+from .utils import remote_output_dir, run
 
 
 def _unzip_if_needed(path: Path):
@@ -129,7 +129,7 @@ def prepare_inputs(
             sample_name=sample.name,
             replicates=sample.replicates,
             run_name=run_name,
-            base_remote_output_dir=_remote_output_dir(custom_output_dir),
+            base_remote_output_dir=remote_output_dir(custom_output_dir),
             clip_r1=clip_r1,
             clip_r2=clip_r2,
             three_prime_clip_r1=three_prime_clip_r1,
