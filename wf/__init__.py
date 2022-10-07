@@ -196,7 +196,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         "salmon",
         "quant",
         "-i",
-        str(input.salmon_index),
+        input.salmon_index.local_path,
         "-l",
         "A",
         *reads,
