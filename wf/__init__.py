@@ -22,8 +22,6 @@ from latch import (large_task, map_task, medium_task, message, small_task,
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
 
-# from latch.verified import deseq2_wf
-
 print = functools.partial(print, flush=True)
 
 
@@ -128,9 +126,10 @@ class TrimgaloreSalmonInput:
     replicates: List[Replicate]
     run_name: str
     base_remote_output_dir: str
-    latch_genome: str
-    custom_names: List[str]
-    custom_files: List[LatchFile]
+
+    gtf: LatchFile
+    salmon_index: LatchDir
+
     clip_r1: Optional[int] = None
     clip_r2: Optional[int] = None
     three_prime_clip_r1: Optional[int] = None
@@ -176,34 +175,63 @@ def prepare_inputs(
     custom_salmon_index: Optional[LatchFile] = None,
     run_splicing: bool = False,
 ) -> List[TrimgaloreSalmonInput]:
-    custom_names = []
-    custom_files = []
-    if custom_ref_genome is not None:
-        custom_names.append("genome")
-        custom_files.append(custom_ref_genome)
-    if custom_ref_trans is not None:
-        custom_names.append("trans")
-        custom_files.append(custom_ref_trans)
+    """Prepare all reference files one time.
+
+    This includes building custom indices or downloading managed files.
+    """
+
+    gm = lgenome.GenomeManager(latch_genome)
+
+    gtf_path = (
+        _unzip_if_needed(custom_gtf.local_path)
+        if custom_gtf is not None
+        else gm.download_gtf(show_progress=False)
+    )
+
     if custom_salmon_index is not None:
-        custom_names.append("index")
-        custom_files.append(custom_salmon_index)
-    if custom_gtf is not None:
-        custom_names.append("gtf")
-        custom_files.append(custom_gtf)
+
+        run(["tar", "-xzvf", custom_salmon_index.local_path])
+
+        if not Path("salmon_index").is_dir():
+            body = "The custom Salmon index provided must be a directory named 'salmon_index'"
+            message("error", {"title": "Invalid custom Salmon index", "body": body})
+            raise MalformedSalmonIndex(body)
+
+        salmon_index_path = Path("salmon_index")
+
+    elif custom_ref_genome is not None:
+        if custom_ref_trans is None and custom_gtf is None:
+            body = (
+                "Both a custom reference genome and GTF file need to be provided "
+                "to build a local index for Salmon"
+            )
+            message("error", {"title": "Unable to build local index", "body": body})
+            raise InsufficientCustomGenomeResources(body)
+
+        ref_genome_path = _unzip_if_needed(custom_ref_genome.local_path)
+
+        if custom_ref_trans is None:
+            ref_trans = _build_transcriptome(ref_genome_path, gtf_path)
+        else:
+            ref_trans = _unzip_if_needed(custom_ref_trans.local_path)
+
+        gentrome = _build_gentrome(ref_genome_path, ref_trans)
+        salmon_index_path = _build_index(gentrome)
+    else:
+        salmon_index_path = gm.download_salmon_index(show_progress=False)
 
     return [
         TrimgaloreSalmonInput(
             sample_name=sample.name,
             replicates=sample.replicates,
             run_name=run_name,
+            base_remote_output_dir=_remote_output_dir(custom_output_dir),
             clip_r1=clip_r1,
             clip_r2=clip_r2,
             three_prime_clip_r1=three_prime_clip_r1,
             three_prime_clip_r2=three_prime_clip_r2,
-            base_remote_output_dir=_remote_output_dir(custom_output_dir),
-            latch_genome=latch_genome.name,
-            custom_names=custom_names,
-            custom_files=custom_files,
+            gtf=LatchFile(gtf_path),
+            salmon_index=LatchDir(salmon_index_path),
             save_indices=save_indices,
             run_splicing=run_splicing,
         )
@@ -394,59 +422,6 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     trimmed_replicates = [x[1] for x in outputs]
     trimgalore_reports = [y for x in outputs for y in x[0]]
 
-    gm = lgenome.GenomeManager(input.latch_genome)
-
-    custom_salmon_index = None
-    custom_ref_genome = None
-    custom_ref_transcriptome = None
-    custom_gtf = None
-    for name, file in zip(input.custom_names, input.custom_files):
-        if name == "index":
-            custom_salmon_index = file
-        elif name == "trans":
-            custom_ref_transcriptome = file
-        elif name == "genome":
-            custom_ref_genome = file
-        elif name == "gtf":
-            custom_gtf = file
-
-    gtf_path = None
-    if custom_gtf is not None:
-        gtf_path = _unzip_if_needed(custom_gtf.local_path)
-
-    if custom_salmon_index is not None:
-        run(["tar", "-xzvf", custom_salmon_index.local_path])
-
-        if not Path("salmon_index").is_dir():
-            body = "The custom Salmon index provided must be a directory named 'salmon_index'"
-            message("error", {"title": "Invalid custom Salmon index", "body": body})
-            raise MalformedSalmonIndex(body)
-
-        local_index = Path("salmon_index")
-
-    elif custom_ref_genome is not None:
-        if custom_ref_transcriptome is None and custom_gtf is None:
-            body = (
-                "Both a custom reference genome and GTF file need to be provided "
-                "to build a local index for Salmon"
-            )
-            message("error", {"title": "Unable to build local index", "body": body})
-            raise InsufficientCustomGenomeResources(body)
-
-        ref_genome_path = _unzip_if_needed(custom_ref_genome.local_path)
-
-        if custom_ref_transcriptome is None:
-            if gtf_path is None:
-                gtf_path = _unzip_if_needed(custom_gtf.local_path)
-            ref_transcriptome = _build_transcriptome(ref_genome_path, gtf_path)
-        else:
-            ref_transcriptome = _unzip_if_needed(custom_ref_transcriptome.local_path)
-
-        gentrome = _build_gentrome(ref_genome_path, ref_transcriptome)
-        local_index = _build_index(gentrome)
-    else:
-        local_index = gm.download_salmon_index(show_progress=False)
-
     merged = _merge_replicates(trimmed_replicates, input.sample_name)
     if len(merged) == 1:
         (r1,) = merged
@@ -468,7 +443,7 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         "salmon",
         "quant",
         "-i",
-        str(local_index),
+        str(input.salmon_index),
         "-l",
         "A",
         *reads,
@@ -598,19 +573,13 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         os.remove(path)
 
     try:
-        gtf_path = (
-            custom_gtf.local_path
-            if custom_gtf is not None
-            else gm.download_gtf(show_progress=False)
-        )
-
         tximport_output_path = Path(f"{SALMON_DIR}/gene_abundance.sf")
         run(
             [
                 "/root/wf/run_tximport.R",
                 "--args",
                 str(salmon_quant),
-                gtf_path,
+                input.gtf_path,
                 tximport_output_path,
             ]
         )
