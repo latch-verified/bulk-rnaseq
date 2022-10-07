@@ -15,12 +15,8 @@ from typing import Annotated, Iterable, List, Optional, Tuple, Union
 
 import lgenome
 from dataclasses_json import dataclass_json
-from flytekit import task
 from flytekit.core.annotation import FlyteAnnotation
 from flytekit.core.launch_plan import reference_launch_plan
-from flytekitplugins.pod import Pod
-from kubernetes.client.models import (V1Container, V1PodSpec,
-                                      V1ResourceRequirements, V1Toleration)
 from latch import (large_task, map_task, medium_task, message, small_task,
                    workflow)
 from latch.resources.launch_plan import LaunchPlan
@@ -29,30 +25,6 @@ from latch.types import LatchDir, LatchFile, file_glob
 # from latch.verified import deseq2_wf
 
 print = functools.partial(print, flush=True)
-
-
-def _get_96_spot_pod() -> Pod:
-    """[ "c6i.24xlarge", "c5.24xlarge", "c5.metal", "c5d.24xlarge", "c5d.metal" ]"""
-
-    primary_container = V1Container(name="primary")
-    resources = V1ResourceRequirements(
-        requests={"cpu": "90", "memory": "170Gi"},
-        limits={"cpu": "96", "memory": "192Gi"},
-    )
-    primary_container.resources = resources
-
-    return Pod(
-        pod_spec=V1PodSpec(
-            containers=[primary_container],
-            tolerations=[
-                V1Toleration(effect="NoSchedule", key="ng", value="cpu-96-spot")
-            ],
-        ),
-        primary_container_name="primary",
-    )
-
-
-large_spot_task = task(task_config=_get_96_spot_pod(), retries=3)
 
 
 def _capture_output(command: List[str]) -> Tuple[int, str]:
@@ -401,7 +373,7 @@ def _build_index(gentrome: Path) -> Path:
     return Path("/root/salmon_index")
 
 
-@large_spot_task
+@large_task
 def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmonOutput]:
 
     SALMON_DIR = "/root/salmon_quant/"
@@ -633,17 +605,17 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         )
 
         tximport_output_path = Path(f"{SALMON_DIR}/gene_abundance.sf")
-        subprocess.run(
+        run(
             [
                 "/root/wf/run_tximport.R",
                 "--args",
                 str(salmon_quant),
                 gtf_path,
                 tximport_output_path,
-            ],
-            capture_output=True,
+            ]
         )
     except subprocess.CalledProcessError as e:
+        identifier = f"sample {input.sample_name}"
         message("error", {"title": f"tximport error for {identifier}", "body": str(e)})
         print(
             f"Unable to produce gene mapping from tximport. Error surfaced from tximport -> {e}"
