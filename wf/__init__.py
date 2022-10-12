@@ -825,8 +825,21 @@ def leafcutter(
     )
 
     groups = Path("/root/groups.txt")
+    existing_conds = {}
     with open(groups, "w") as f:
         for cond in manual_conditions:
+            if cond[1] == "__ignore":
+                continue
+            if cond[1] not in existing_conds:
+                if len(existing_conds) > 2:
+                    print(
+                        "Only running differential splicing for first two"
+                        f" conditions: {list(existing_conds.keys())}"
+                    )
+                    break
+                else:
+                    existing_conds[cond[1]] = True
+
             f.write(f"{cond[0].replace(' ', '')}.bam {cond[1]}\n")
 
     run(
