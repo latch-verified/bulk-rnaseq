@@ -1,0 +1,110 @@
+chrI	SGD	transcript	335	649	.	+	.	transcript_id "YAL069W_mRNA"; gene_id "YAL069W_mRNA"
+chrI	SGD	CDS	335	649	.	+	0	transcript_id "YAL069W_mRNA";
+chrI	SGD	transcript	538	792	.	+	.	transcript_id "YAL068W-A_mRNA"; gene_id "YAL068W-A_mRNA"
+chrI	SGD	CDS	538	792	.	+	0	transcript_id "YAL068W-A_mRNA";
+chrI	SGD	transcript	1807	2169	.	-	.	transcript_id "YAL068C_mRNA"; gene_id "YAL068C_mRNA"; gene_name "PAU8"
+chrI	SGD	CDS	1807	2169	.	-	0	transcript_id "YAL068C_mRNA"; gene_name "PAU8";
+chrI	SGD	transcript	2480	2707	.	+	.	transcript_id "YAL067W-A_mRNA"; gene_id "YAL067W-A_mRNA"
+chrI	SGD	CDS	2480	2707	.	+	0	transcript_id "YAL067W-A_mRNA";
+chrI	SGD	transcript	7235	9016	.	-	.	transcript_id "YAL067C_id001"; gene_id "YAL067C_id001"; gene_name "SEO1"
+chrI	SGD	CDS	7235	9016	.	-	0	transcript_id "YAL067C_id001"; gene_name "SEO1";
+chrI	SGD	transcript	10091	10399	.	+	.	transcript_id "YAL066W_id001"; gene_id "YAL066W_id001"
+chrI	SGD	CDS	10091	10399	.	+	0	transcript_id "YAL066W_id001";
+chrI	SGD	transcript	11565	11951	.	-	.	transcript_id "YAL065C_mRNA"; gene_id "YAL065C_mRNA"
+chrI	SGD	CDS	11565	11951	.	-	0	transcript_id "YAL065C_mRNA";
+chrI	SGD	transcript	12046	12426	.	+	.	transcript_id "YAL064W-B_id001"; gene_id "YAL064W-B_id001"
+chrI	SGD	CDS	12046	12426	.	+	0	transcript_id "YAL064W-B_id001";
+chrI	SGD	transcript	13363	13743	.	-	.	transcript_id "YAL064C-A_mRNA"; gene_id "YAL064C-A_mRNA"; gene_name "TDA8"
+chrI	SGD	CDS	13363	13743	.	-	0	transcript_id "YAL064C-A_mRNA"; gene_name "TDA8";
+chrI	SGD	transcript	21566	21850	.	+	.	transcript_id "YAL064W_mRNA"; gene_id "YAL064W_mRNA"
+chrI	SGD	CDS	21566	21850	.	+	0	transcript_id "YAL064W_mRNA";
+chrI	SGD	transcript	22051	23617	.	-	.	transcript_id "YAL063C-A_id001"; gene_id "YAL063C-A"
+chrI	SGD	exon	22051	23617	.	-	.	transcript_id "YAL063C-A_id001"; gene_id "YAL063C-A";
+chrI	SGD	transcript	22395	22685	.	-	.	transcript_id "YAL063C-A_id006"; gene_id "YAL063C-A_id006"
+chrI	SGD	CDS	22395	22685	.	-	0	transcript_id "YAL063C-A_id006";
+chrI	SGD	transcript	24000	27968	.	-	.	transcript_id "YAL063C_mRNA"; gene_id "YAL063C_mRNA"; gene_name "FLO9"
+chrI	SGD	CDS	24000	27968	.	-	0	transcript_id "YAL063C_mRNA"; gene_name "FLO9";
+chrI	SGD	transcript	31527	33039	.	+	.	transcript_id "YAL062W_id001"; gene_id "YAL062W"; gene_name "GDH3"
+chrI	SGD	exon	31527	33039	.	+	.	transcript_id "YAL062W_id001"; gene_id "YAL062W"; gene_name "GDH3";
+chrI	SGD	transcript	31567	32940	.	+	.	transcript_id "YAL062W_id003"; gene_id "YAL062W_id003"; gene_name "GDH3"
+chrI	SGD	CDS	31567	32940	.	+	0	transcript_id "YAL062W_id003"; gene_name "GDH3";
+chrI	SGD	transcript	33345	35018	.	+	.	transcript_id "YAL061W_id003"; gene_id "YAL061W"; gene_name "BDH2"
+chrI	SGD	exon	33345	35018	.	+	.	transcript_id "YAL061W_id003"; gene_id "YAL061W"; gene_name "BDH2";
+chrI	SGD	transcript	33448	34701	.	+	.	transcript_id "YAL061W_id001"; gene_id "YAL061W_id001"; gene_name "BDH2"
+chrI	SGD	CDS	33448	34701	.	+	0	transcript_id "YAL061W_id001"; gene_name "BDH2";
+chrI	SGD	transcript	35107	36433	.	+	.	transcript_id "YAL060W_id014"; gene_id "YAL060W"; gene_name "BDH1"
+chrI	SGD	exon	35107	36433	.	+	.	transcript_id "YAL060W_id014"; gene_id "YAL060W"; gene_name "BDH1";
+chrI	SGD	transcript	35155	36303	.	+	.	transcript_id "YAL060W_id001"; gene_id "YAL060W_id001"; gene_name "BDH1"
+chrI	SGD	CDS	35155	36303	.	+	0	transcript_id "YAL060W_id001"; gene_name "BDH1";
+chrI	SGD	transcript	36466	37344	.	+	.	transcript_id "YAL059W_id002"; gene_id "YAL059W"; gene_name "ECM1"
+chrI	SGD	exon	36466	37344	.	+	.	transcript_id "YAL059W_id002"; gene_id "YAL059W"; gene_name "ECM1";
+chrI	SGD	transcript	36496	36918	.	-	.	transcript_id "YAL059C-A_mRNA"; gene_id "YAL059C-A_mRNA"
+chrI	SGD	CDS	36496	36918	.	-	0	transcript_id "YAL059C-A_mRNA";
+chrI	SGD	transcript	36509	37147	.	+	.	transcript_id "YAL059W_id001"; gene_id "YAL059W_id001"; gene_name "ECM1"
+chrI	SGD	CDS	36509	37147	.	+	0	transcript_id "YAL059W_id001"; gene_name "ECM1";
+chrI	SGD	transcript	37405	39163	.	+	.	transcript_id "YAL058W_id001"; gene_id "YAL058W"; gene_name "CNE1"
+chrI	SGD	exon	37405	39163	.	+	.	transcript_id "YAL058W_id001"; gene_id "YAL058W"; gene_name "CNE1";
+chrI	SGD	transcript	37464	38972	.	+	.	transcript_id "YAL058W_id003"; gene_id "YAL058W_id003"; gene_name "CNE1"
+chrI	SGD	CDS	37464	38972	.	+	0	transcript_id "YAL058W_id003"; gene_name "CNE1";
+chrI	SGD	transcript	38696	39046	.	-	.	transcript_id "YAL056C-A_mRNA"; gene_id "YAL056C-A_mRNA"
+chrI	SGD	CDS	38696	39046	.	-	0	transcript_id "YAL056C-A_mRNA";
+chrI	SGD	transcript	39234	42040	.	+	.	transcript_id "YAL056W_id006"; gene_id "YAL056W"; gene_name "GPB2"
+chrI	SGD	exon	39234	42040	.	+	.	transcript_id "YAL056W_id006"; gene_id "YAL056W"; gene_name "GPB2";
+chrI	SGD	transcript	39259	41901	.	+	.	transcript_id "YAL056W_id001"; gene_id "YAL056W_id001"; gene_name "GPB2"
+chrI	SGD	CDS	39259	41901	.	+	0	transcript_id "YAL056W_id001"; gene_name "GPB2";
+chrI	SGD	transcript	42142	42838	.	+	.	transcript_id "YAL055W_id003"; gene_id "YAL055W"; gene_name "PEX22"
+chrI	SGD	exon	42142	42838	.	+	.	transcript_id "YAL055W_id003"; gene_id "YAL055W"; gene_name "PEX22";
+chrI	SGD	transcript	42177	42719	.	+	.	transcript_id "YAL055W_id001"; gene_id "YAL055W_id001"; gene_name "PEX22"
+chrI	SGD	CDS	42177	42719	.	+	0	transcript_id "YAL055W_id001"; gene_name "PEX22";
+chrI	SGD	transcript	42881	45022	.	-	.	transcript_id "YAL054C_id001"; gene_id "YAL054C_id001"; gene_name "ACS1"
+chrI	SGD	CDS	42881	45022	.	-	0	transcript_id "YAL054C_id001"; gene_name "ACS1";
+chrI	SGD	transcript	45728	48310	.	+	.	transcript_id "YAL053W_id003"; gene_id "YAL053W"; gene_name "FLC2"
+chrI	SGD	exon	45728	48310	.	+	.	transcript_id "YAL053W_id003"; gene_id "YAL053W"; gene_name "FLC2";
+chrI	SGD	transcript	45899	48250	.	+	.	transcript_id "YAL053W_id001"; gene_id "YAL053W_id001"; gene_name "FLC2"
+chrI	SGD	CDS	45899	48250	.	+	0	transcript_id "YAL053W_id001"; gene_name "FLC2";
+chrI	SGD	transcript	48564	51707	.	+	.	transcript_id "YAL051W_mRNA"; gene_id "YAL051W_mRNA"; gene_name "OAF1"
+chrI	SGD	CDS	48564	51707	.	+	0	transcript_id "YAL051W_mRNA"; gene_name "OAF1";
+chrI	SGD	transcript	51691	54082	.	-	.	transcript_id "YAL049C_id001"; gene_id "YAL049C"; gene_name "AIM2"
+chrI	SGD	exon	51691	54082	.	-	.	transcript_id "YAL049C_id001"; gene_id "YAL049C"; gene_name "AIM2";
+chrI	SGD	transcript	51855	52595	.	-	.	transcript_id "YAL049C_id002"; gene_id "YAL049C_id002"; gene_name "AIM2"
+chrI	SGD	CDS	51855	52595	.	-	0	transcript_id "YAL049C_id002"; gene_name "AIM2";
+chrI	SGD	transcript	52801	54789	.	-	.	transcript_id "YAL048C_mRNA"; gene_id "YAL048C_mRNA"; gene_name "GEM1"
+chrI	SGD	CDS	52801	54789	.	-	0	transcript_id "YAL048C_mRNA"; gene_name "GEM1";
+chrI	SGD	transcript	54209	55063	.	+	.	transcript_id "YAL047W-A_id001"; gene_id "YAL047W-A"
+chrI	SGD	exon	54209	55063	.	+	.	transcript_id "YAL047W-A_id001"; gene_id "YAL047W-A";
+chrI	SGD	transcript	54584	54913	.	+	.	transcript_id "YAL047W-A_id002"; gene_id "YAL047W-A_id002"
+chrI	SGD	CDS	54584	54913	.	+	0	transcript_id "YAL047W-A_id002";
+chrI	SGD	transcript	54931	56886	.	-	.	transcript_id "YAL047C_id001"; gene_id "YAL047C"; gene_name "SPC72"
+chrI	SGD	exon	54931	56886	.	-	.	transcript_id "YAL047C_id001"; gene_id "YAL047C"; gene_name "SPC72";
+chrI	SGD	transcript	54989	56857	.	-	.	transcript_id "YAL047C_id002"; gene_id "YAL047C_id002"; gene_name "SPC72"
+chrI	SGD	CDS	54989	56857	.	-	0	transcript_id "YAL047C_id002"; gene_name "SPC72";
+chrI	SGD	transcript	56907	57544	.	-	.	transcript_id "YAL046C_id001"; gene_id "YAL046C"; gene_name "BOL3"
+chrI	SGD	exon	56907	57544	.	-	.	transcript_id "YAL046C_id001"; gene_id "YAL046C"; gene_name "BOL3";
+chrI	SGD	transcript	56973	57958	.	+	.	transcript_id "YAL044W-A_id004"; gene_id "YAL044W-A"; gene_name "BOL1"
+chrI	SGD	exon	56973	57958	.	+	.	transcript_id "YAL044W-A_id004"; gene_id "YAL044W-A"; gene_name "BOL1";
+chrI	SGD	transcript	57029	57385	.	-	.	transcript_id "YAL046C_id002"; gene_id "YAL046C_id002"; gene_name "BOL3"
+chrI	SGD	CDS	57029	57385	.	-	0	transcript_id "YAL046C_id002"; gene_name "BOL3";
+chrI	SGD	transcript	57488	57796	.	-	.	transcript_id "YAL045C_mRNA"; gene_id "YAL045C_mRNA"
+chrI	SGD	CDS	57488	57796	.	-	0	transcript_id "YAL045C_mRNA";
+chrI	SGD	transcript	57518	57850	.	+	.	transcript_id "YAL044W-A_id001"; gene_id "YAL044W-A_id001"; gene_name "BOL1"
+chrI	SGD	CDS	57518	57850	.	+	0	transcript_id "YAL044W-A_id001"; gene_name "BOL1";
+chrI	SGD	transcript	57756	58476	.	-	.	transcript_id "YAL044C_id002"; gene_id "YAL044C"; gene_name "GCV3"
+chrI	SGD	exon	57756	58476	.	-	.	transcript_id "YAL044C_id002"; gene_id "YAL044C"; gene_name "GCV3";
+chrI	SGD	transcript	57950	58462	.	-	.	transcript_id "YAL044C_id001"; gene_id "YAL044C_id001"; gene_name "GCV3"
+chrI	SGD	CDS	57950	58462	.	-	0	transcript_id "YAL044C_id001"; gene_name "GCV3";
+chrI	SGD	transcript	58499	61068	.	-	.	transcript_id "YAL043C_id001"; gene_id "YAL043C"; gene_name "PTA1"
+chrI	SGD	exon	58499	61068	.	-	.	transcript_id "YAL043C_id001"; gene_id "YAL043C"; gene_name "PTA1";
+chrI	SGD	transcript	58695	61052	.	-	.	transcript_id "YAL043C_id002"; gene_id "YAL043C_id002"; gene_name "PTA1"
+chrI	SGD	CDS	58695	61052	.	-	0	transcript_id "YAL043C_id002"; gene_name "PTA1";
+chrI	SGD	transcript	61231	61608	.	-	.	transcript_id "YAL042C-A_mRNA"; gene_id "YAL042C-A_mRNA"
+chrI	SGD	CDS	61231	61608	.	-	0	transcript_id "YAL042C-A_mRNA";
+chrI	SGD	transcript	61269	62680	.	+	.	transcript_id "YAL042W_id001"; gene_id "YAL042W"; gene_name "ERV46"
+chrI	SGD	exon	61269	62680	.	+	.	transcript_id "YAL042W_id001"; gene_id "YAL042W"; gene_name "ERV46";
+chrI	SGD	transcript	61316	62563	.	+	.	transcript_id "YAL042W_id005"; gene_id "YAL042W_id005"; gene_name "ERV46"
+chrI	SGD	CDS	61316	62563	.	+	0	transcript_id "YAL042W_id005"; gene_name "ERV46";
+chrI	SGD	transcript	62773	65463	.	+	.	transcript_id "YAL041W_id003"; gene_id "YAL041W"; gene_name "CDC24"
+chrI	SGD	exon	62773	65463	.	+	.	transcript_id "YAL041W_id003"; gene_id "YAL041W"; gene_name "CDC24";
+chrI	SGD	transcript	62840	65404	.	+	.	transcript_id "YAL041W_id001"; gene_id "YAL041W_id001"; gene_name "CDC24"
+chrI	SGD	CDS	62840	65404	.	+	0	transcript_id "YAL041W_id001"; gene_name "CDC24";
+chrI	SGD	transcript	65596	67848	.	-	.	transcript_id "YAL040C_id003"; gene_id "YAL040C"; gene_name "CLN3"
+chrI	SGD	exon	65596	67848	.	-	.	transcript_id "YAL040C_id003"; gene_id "YAL040C"; gene_name "CLN3";
