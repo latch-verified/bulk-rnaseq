@@ -8,8 +8,8 @@ from latch import map_task, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
 
-from wf.models import (AlignmentTools, LatchGenome, Sample, SingleEndReads,
-                       Strandedness)
+from wf.core.models import (AlignmentTools, LatchGenome, PairedEndReads,
+                            Sample, SingleEndReads, Strandedness)
 from wf.subworkflows.deseq2 import deseq2_wf
 from wf.tasks.count_matrix_and_multiqc import count_matrix_and_multiqc
 from wf.tasks.leafcutter import leafcutter
@@ -69,7 +69,7 @@ def rnaseq(
     run_splicing: bool = False,
     custom_output_dir: Optional[LatchDir] = None,
 ):
-    inputs = prepare_inputs(
+    ts_inputs = prepare_inputs(
         samples=samples,
         run_name=run_name,
         custom_output_dir=custom_output_dir,
@@ -80,7 +80,7 @@ def rnaseq(
         custom_salmon_index=salmon_index,
         run_splicing=run_splicing,
     )
-    outputs = map_task(trimgalore_salmon)(input=inputs)
+    outputs = map_task(trimgalore_salmon)(ts_input=ts_inputs)
     count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
         run_name=run_name,
         ts_outputs=outputs,
@@ -112,7 +112,7 @@ def rnaseq(
 
 LaunchPlan(
     rnaseq,
-    "mall Data - 10K Human Reads",
+    "Small Data - Human 10K Reads",
     {
         "samples": [
             Sample(
@@ -128,6 +128,26 @@ LaunchPlan(
             ),
         ],
         "run_name": "Small Test",
+    },
+)
+
+LaunchPlan(
+    rnaseq,
+    "Small Data - Yeast Chr I",
+    {
+        "samples": [
+            Sample(
+                name="chrI",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    PairedEndReads(
+                        r1=LatchFile("s3://latch-public/test-data/1/gene.r1.fq.gz"),
+                        r2=LatchFile("s3://latch-public/test-data/1/gene.r2.fq.gz"),
+                    ),
+                ],
+            ),
+        ],
+        "run_name": "yeast chrI",
     },
 )
 

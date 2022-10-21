@@ -25,7 +25,7 @@ def prepare_inputs(
     custom_salmon_index: Optional[LatchFile] = None,
     run_splicing: bool = False,
 ) -> List[TrimgaloreSalmonInput]:
-    """TODO"""
+    """Organize inputs and build references if needed for downstream quantification."""
 
     gm = lgenome.GenomeManager(latch_genome.name)
 
@@ -81,7 +81,7 @@ def prepare_inputs(
 
 
 def rsem_prepare_reference(genome: FastaFile, gtf: GtfFile) -> Path:
-    """TODO"""
+    """Build a reference transcriptome using a genome and gtf file."""
 
     genome = unzip_if_needed(genome)
     unzip_if_needed(gtf)
@@ -102,7 +102,7 @@ def rsem_prepare_reference(genome: FastaFile, gtf: GtfFile) -> Path:
 
 
 def build_gentrome(genome: FastaFile, transcriptome: FastaFile) -> Path:
-    """TODO"""
+    """Build a 'gentrome' (genome + transcriptome) for use in salmon."""
 
     run(["/root/gentrome.sh", str(genome), str(transcriptome)])
 
@@ -110,7 +110,7 @@ def build_gentrome(genome: FastaFile, transcriptome: FastaFile) -> Path:
 
 
 def build_salmon_index(gentrome: Path) -> Path:
-    """TODO"""
+    """Build an index for salmon."""
 
     run(
         [

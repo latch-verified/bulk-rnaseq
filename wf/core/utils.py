@@ -52,7 +52,7 @@ def run_and_capture_output(command: List[str]) -> Tuple[int, str]:
     return returncode, "\n".join(captured_stdout)
 
 
-def slugify(value: str) -> str:
+def sanitize(value: str) -> str:
     return value.lower().replace(" ", "_")
 
 

@@ -19,7 +19,6 @@ RUN /root/txImports.R
 COPY vendor/lcImports.R /root/lcImports.R
 RUN /root/lcImports.R
 COPY vendor/runTxImport.R /root/runTxImport.R
-RUN /root/runTxImport.R
 
 RUN apt-get install -y curl vim default-jre-headless zlib1g zlib1g-dev unzip cmake
 RUN python3 -m pip install cutadapt
@@ -75,7 +74,8 @@ COPY vendor/gentrome.sh /root/gentrome.sh
 
 RUN python3 -m pip install --upgrade multiqc matplotlib numpy scipy lgenome
 
-RUN python3 -m pip install latch
+COPY latch /root/latch
+RUN cd latch && pip install -e .
 COPY wf/ /root/wf
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag

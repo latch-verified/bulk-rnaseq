@@ -1,7 +1,7 @@
 from latch.types import LatchFile
-from wf.models import (LatchGenome, PairedEndReads, Sample, SingleEndReads,
-                       Strandedness)
-from wf.prepare_inputs import prepare_inputs
+from wf.core.models import (LatchGenome, PairedEndReads, Sample,
+                            SingleEndReads, Strandedness)
+from wf.tasks.prepare_inputs import prepare_inputs
 
 zipped_paired_sample = Sample(
     name="gene",

@@ -1,6 +1,6 @@
-from colle
 import csv
 import subprocess
+from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional
 
@@ -35,8 +35,7 @@ def count_matrix_and_multiqc(
 
     combined_counts = defaultdict(dict)
     for tso in ts_outputs:
-        gene_abundance_file = Path(
-            tso.gene_abundance_file.local_path).resolve()
+        gene_abundance_file = Path(tso.gene_abundance_file.local_path).resolve()
         with gene_abundance_file.open("r") as f:
             for row in csv.DictReader(f, dialect=csv.excel_tab):
                 gene_name = row["Name"]
