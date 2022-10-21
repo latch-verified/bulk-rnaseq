@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 from typing import List, Optional
 
 from latch.types import LatchDir
@@ -18,3 +19,13 @@ def remote_output_dir(custom_output_dir: Optional[LatchDir]) -> str:
     if remote_path[:8] == "latch://":
         remote_path = remote_path[8:]
     return remote_path
+
+
+def unzip_if_needed(path: Path) -> Path:
+
+    is_gzipped = str(path).endswith(".gz")
+    if not is_gzipped:
+        return path
+
+    run(["gunzip", str(path)])
+    return Path(str(path).removesuffix(".gz")).resolve()

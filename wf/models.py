@@ -75,15 +75,8 @@ class TrimgaloreSalmonInput:
     replicates: List[Replicate]
     run_name: str
     base_remote_output_dir: str
-
     gtf: LatchFile
     salmon_index: LatchDir
-
-    clip_r1: Optional[int] = None
-    clip_r2: Optional[int] = None
-    three_prime_clip_r1: Optional[int] = None
-    three_prime_clip_r2: Optional[int] = None
-    save_indices: bool = False
     run_splicing: bool = False
 
 

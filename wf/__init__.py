@@ -6,7 +6,6 @@ import os
 import re
 import shutil
 import subprocess
-import types
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path
@@ -18,12 +17,12 @@ from latch import large_task, map_task, medium_task, message, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
 
-from .errors import TrimgaloreError
-from .models import (LatchGenome, PairedEndReads, Replicate, Sample,
-                     SingleEndReads, Strandedness, TrimgaloreSalmonInput,
-                     TrimgaloreSalmonOutput)
-from .prepare_inputs import prepare_inputs
-from .utils import remote_output_dir, run
+from wf.errors import TrimgaloreError
+from wf.models import (LatchGenome, PairedEndReads, Replicate, Sample,
+                       SingleEndReads, Strandedness, TrimgaloreSalmonInput,
+                       TrimgaloreSalmonOutput)
+from wf.prepare_inputs import prepare_inputs
+from wf.utils import remote_output_dir, run
 
 print = functools.partial(print, flush=True)
 
@@ -51,9 +50,6 @@ def _capture_output(command: List[str]) -> Tuple[int, str]:
 # TODO - patch latch with proper def __repr__ -> str
 def ___repr__(self):
     return str(self.local_path)
-
-
-LatchFile.__repr__ = types.MethodType(___repr__, LatchFile)
 
 
 def slugify(value: str) -> str:
@@ -507,8 +503,21 @@ def leafcutter(
     )
 
     groups = Path("/root/groups.txt")
+    existing_conds = {}
     with open(groups, "w") as f:
         for cond in manual_conditions:
+            if cond[1] == "__ignore":
+                continue
+            if cond[1] not in existing_conds:
+                if len(existing_conds) > 2:
+                    print(
+                        "Only running differential splicing for first two"
+                        f" conditions: {list(existing_conds.keys())}"
+                    )
+                    break
+                else:
+                    existing_conds[cond[1]] = True
+
             f.write(f"{cond[0].replace(' ', '')}.bam {cond[1]}\n")
 
     run(
@@ -652,7 +661,6 @@ def rnaseq(
     custom_ref_trans: Optional[LatchFile] = None,
     star_index: Optional[LatchFile] = None,
     salmon_index: Optional[LatchFile] = None,
-    save_indices: bool = False,
     run_splicing: bool = False,
     custom_output_dir: Optional[LatchDir] = None,
 ):
@@ -1026,17 +1034,12 @@ def rnaseq(
     inputs = prepare_inputs(
         samples=samples,
         run_name=run_name,
-        clip_r1=None,
-        clip_r2=None,
-        three_prime_clip_r1=None,
-        three_prime_clip_r2=None,
         custom_output_dir=custom_output_dir,
         latch_genome=latch_genome,
         custom_gtf=custom_gtf,
         custom_ref_genome=custom_ref_genome,
         custom_ref_trans=custom_ref_trans,
         custom_salmon_index=salmon_index,
-        save_indices=save_indices,
         run_splicing=run_splicing,
     )
     outputs = map_task(trimgalore_salmon)(input=inputs)
@@ -1072,6 +1075,27 @@ def rnaseq(
 LaunchPlan(
     rnaseq,
     "Small Data - 10K Human Reads",
+    {
+        "samples": [
+            Sample(
+                name="Test",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/small-test/10k_reads_human.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+        ],
+        "run_name": "Small Test",
+    },
+)
+
+LaunchPlan(
+    rnaseq,
+    "mall Data - 10K Human Reads",
     {
         "samples": [
             Sample(
