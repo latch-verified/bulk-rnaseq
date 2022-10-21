@@ -14,10 +14,12 @@ RUN apt-get update &&\
 
 RUN apt-get install --yes libcurl4-openssl-dev libgsl-dev libssl-dev libxml2-dev
 
-COPY txImports.R /root/txImports.R
+COPY vendor/txImports.R /root/txImports.R
 RUN /root/txImports.R
-COPY lcImports.R /root/lcImports.R
+COPY vendor/lcImports.R /root/lcImports.R
 RUN /root/lcImports.R
+COPY vendor/runTxImport.R /root/runTxImport.R
+RUN /root/runTxImport.R
 
 RUN apt-get install -y curl vim default-jre-headless zlib1g zlib1g-dev unzip cmake
 RUN python3 -m pip install cutadapt
@@ -77,11 +79,11 @@ RUN wget https://sourceforge.net/projects/libpng/files/zlib/1.2.9/zlib-1.2.9.tar
 RUN apt-get install -y git 
 RUN git clone https://github.com/davidaknowles/leafcutter
 
-COPY gentrome.sh /root/gentrome.sh
+COPY vendor/gentrome.sh /root/gentrome.sh
 
 RUN python3 -m pip install --upgrade multiqc matplotlib numpy scipy lgenome
 
-RUN python3 -m pip install latch --upgrade
+RUN python3 -m pip install latch
 COPY wf/ /root/wf
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag
