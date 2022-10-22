@@ -70,21 +70,12 @@ RUN curl -L https://github.com/griffithlab/regtools/archive/refs/tags/0.5.2.tar.
     make &&\
     mv regtools /bin/
 
-RUN wget https://sourceforge.net/projects/libpng/files/zlib/1.2.9/zlib-1.2.9.tar.gz/download &&\
-    tar -xzvf download &&\
-    cd zlib-1.2.9 &&\
-    ./configure && make && make install
-
-RUN apt-get install -y git 
-RUN git clone https://github.com/davidaknowles/leafcutter
-
 COPY vendor/gentrome.sh /root/gentrome.sh
 
 RUN python3 -m pip install --upgrade multiqc matplotlib numpy scipy lgenome
 
 COPY latch /root/latch
-RUN cd /root/latch && pip install -e .
-
+RUN cd latch && pip install -e .
 COPY wf/ /root/wf
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag

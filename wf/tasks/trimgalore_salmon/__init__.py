@@ -1,0 +1,1 @@
+from .trimgalore_salmon import trimgalore_salmon
