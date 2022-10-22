@@ -8,13 +8,14 @@ from latch import map_task, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
 
-from wf.models import (AlignmentTools, LatchGenome, Sample, SingleEndReads,
-                       Strandedness)
-from wf.subworkflows.deseq2 import deseq2_wf
-from wf.tasks.count_matrix_and_multiqc import count_matrix_and_multiqc
-from wf.tasks.leafcutter import leafcutter
-from wf.tasks.prepare_inputs import prepare_inputs
-from wf.tasks.trimgalore_salmon import trimgalore_salmon
+from wf.core.models import (AlignmentTools, LatchGenome, Sample,
+                            SingleEndReads, Strandedness)
+from wf.subworkflows.deseq2.deseq2 import deseq2_wf
+from wf.tasks.count_matrix_and_multiqc.count_matrix_and_multiqc import \
+    count_matrix_and_multiqc
+from wf.tasks.leafcutter.leafcutter import leafcutter
+from wf.tasks.prepare_inputs.prepare_inputs import prepare_inputs
+from wf.tasks.trimgalore_salmon.trimgalore_salmon import trimgalore_salmon
 
 print = functools.partial(print, flush=True)
 

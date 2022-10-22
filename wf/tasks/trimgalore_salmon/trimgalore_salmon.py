@@ -5,8 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
-from latch import file_glob, large_task, message
-from latch.types import LatchDir, LatchFile
+from latch import large_task, message
+from latch.types import LatchDir, LatchFile, file_glob
 from wf.core.errors import TrimgaloreError
 from wf.core.models import (PairedEndReads, Replicate, SingleEndReads,
                             TrimgaloreSalmonInput, TrimgaloreSalmonOutput)

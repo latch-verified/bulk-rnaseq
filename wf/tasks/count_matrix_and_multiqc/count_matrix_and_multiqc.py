@@ -1,12 +1,13 @@
-from colle
 import csv
 import subprocess
+from collections import defaultdict
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from latch import medium_task, message
 from latch.types import LatchDir, LatchFile
 from wf.core.models import TrimgaloreSalmonOutput
+from wf.core.utils import remote_output_dir
 
 _COUNT_TABLE_GENE_ID_COLUMN = "gene_id"
 
@@ -16,7 +17,7 @@ def count_matrix_and_multiqc(
     run_name: str,
     ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
-) -> (Optional[LatchFile], Optional[LatchFile]):
+) -> Tuple[Optional[LatchFile], Optional[LatchFile]]:
 
     count_matrix_file = None
     multiqc_report_file = None
