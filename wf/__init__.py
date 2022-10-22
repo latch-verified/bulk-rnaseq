@@ -10,8 +10,8 @@ from latch.types import LatchDir, LatchFile
 
 from wf.core.metadata import metadata
 from wf.core.models import (AlignmentTools, LatchGenome, Sample,
-                            SingleEndReads, Strandedness)
-from wf.subworkflows.deseq2.deseq2 import deseq2_wf
+                            PairedEndReads, SingleEndReads, Strandedness)
+from wf.subworkflows.deseq2 import deseq2_wf
 from wf.tasks.count_matrix_and_multiqc.count_matrix_and_multiqc import \
     count_matrix_and_multiqc
 from wf.tasks.leafcutter.leafcutter import leafcutter
