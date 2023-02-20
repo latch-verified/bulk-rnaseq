@@ -1094,6 +1094,8 @@ def rnaseq(
         repository: github.com/latch-verified/bulk-rnaseq
         license:
             id: MIT
+        tags:
+        - NGS
         flow:
         - section: Samples
           flow:
