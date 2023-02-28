@@ -7,6 +7,8 @@ import re
 import shutil
 import subprocess
 import types
+import urllib.parse
+from urllib.parse import urljoin
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
@@ -19,14 +21,21 @@ from flytekit import task
 from flytekit.core.annotation import FlyteAnnotation
 from flytekit.core.launch_plan import reference_launch_plan
 from flytekitplugins.pod import Pod
-from kubernetes.client.models import (V1Container, V1PodSpec,
-                                      V1ResourceRequirements, V1Toleration)
-from latch import (large_task, map_task, medium_task, message, small_task,
-                   workflow)
+from kubernetes.client.models import (
+    V1Container,
+    V1PodSpec,
+    V1ResourceRequirements,
+    V1Toleration,
+)
+from latch import map_task, medium_task, message, small_task, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, file_glob
 
 # from latch.verified import deseq2_wf
+
+# todo(maximsmol): remove these when new lytekit releases
+urllib.parse.uses_netloc.append("latch")
+urllib.parse.uses_relative.append("latch")
 
 print = functools.partial(print, flush=True)
 
@@ -82,6 +91,39 @@ def run(command: List[str], check: bool = True, capture_output: bool = False):
 # TODO - patch latch with proper def __repr__ -> str
 def ___repr__(self):
     return str(self.local_path)
+
+
+def urljoins(*args: str, dir: bool = False) -> str:
+    """Construct a URL by appending paths
+
+    Paths are always joined, with extra `/`s added if missing. Does not allow
+    overriding basenames as opposed to normal `urljoin`. Whether the final
+    path ends in a `/` is still significant and will be preserved in the output
+
+    >>> urljoin("latch:///directory/", "another_directory")
+    latch:///directory/another_directory
+    >>> # No slash means "another_directory" is treated as a filename
+    >>> urljoin(urljoin("latch:///directory/", "another_directory"), "file")
+    latch:///directory/file
+    >>> # Unintentionally overrode the filename
+    >>> urljoins("latch:///directory/", "another_directory", "file")
+    latch:///directory/another_directory/file
+    >>> # Joined paths as expected
+
+    Args:
+        args: Paths to join
+        dir: If true, ensure the output ends with a `/`
+    """
+    res = args[0]
+    for x in args[1:]:
+        if res[-1] != "/":
+            res = f"{res}/"
+        res = urljoin(res, x)
+
+    if dir and res[-1] != "/":
+        res = f"{res}/"
+
+    return res
 
 
 LatchFile.__repr__ = types.MethodType(___repr__, LatchFile)
@@ -268,14 +310,9 @@ def _concatenate_files(filepaths: Iterable[str], output_path: str) -> Path:
 
 def _remote_output_dir(custom_output_dir: Optional[LatchDir]) -> str:
     if custom_output_dir is None:
-        return "/RNA-Seq Outputs/"
-    remote_path = custom_output_dir.remote_path
-    assert remote_path is not None
-    if remote_path[-1] != "/":
-        remote_path += "/"
-    if remote_path[:8] == "latch://":
-        remote_path = remote_path[8:]
-    return remote_path
+        return "latch:///RNA-Seq Outputs/"
+
+    return custom_output_dir.remote_path
 
 
 class TrimgaloreError(Exception):
@@ -325,9 +362,14 @@ def do_trimgalore(
         raise TrimgaloreError(stdout)
 
     def remote(middle: str) -> str:
-        base = f"{ts_input.base_remote_output_dir}{ts_input.run_name}"
-        tail = f"{ts_input.sample_name}/replicate_{replicate_index}/"
-        return f"latch:///{base}/Quality Control Data/Trimming {middle} (TrimGalore)/{tail}"
+        return urljoins(
+            ts_input.base_remote_output_dir,
+            ts_input.run_name,
+            "Quality Control Data",
+            f"Trimming {middle} (TrimGalore)",
+            ts_input.sample_name,
+            f"replicate_{replicate_index}/",
+        )
 
     reads_directory = remote("Reads")
     if isinstance(reads, SingleEndReads):
@@ -407,7 +449,13 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     SALMON_DIR = "/root/salmon_quant/"
     """Default location for salmon outputs."""
 
-    REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Quantification (salmon)/{input.sample_name}/"
+    REMOTE_PATH = urljoins(
+        input.base_remote_output_dir,
+        input.run_name,
+        "Quantification (salmon)",
+        input.sample_name,
+        dir=True,
+    )
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     #
@@ -655,21 +703,23 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     shutil.rmtree(Path(f"{SALMON_DIR}/logs").resolve())
 
     if input.run_splicing:
-        junction_file = LatchFile(junc_path, REMOTE_PATH + junc_path.name)
+        junction_file = LatchFile(junc_path, urljoin(REMOTE_PATH, junc_path.name))
     else:
         # temp, Optional field in json data class no work
         junction_file = LatchFile(
-            "/root/wf/run_tximport.R", REMOTE_PATH + junc_path.name
+            "/root/wf/run_tximport.R", urljoin(REMOTE_PATH, junc_path.name)
         )
     return TrimgaloreSalmonOutput(
         passed_salmon=True,
         passed_tximport=True,
         sample_name=input.sample_name,
         salmon_aux_output=LatchDir(SALMON_DIR, REMOTE_PATH),
-        salmon_quant_file=LatchFile(salmon_quant, REMOTE_PATH + salmon_quant.name),
+        salmon_quant_file=LatchFile(
+            salmon_quant, urljoin(REMOTE_PATH, salmon_quant.name)
+        ),
         junction_file=junction_file,
         gene_abundance_file=LatchFile(
-            tximport_output_path, REMOTE_PATH + tximport_output_path.name
+            tximport_output_path, urljoin(REMOTE_PATH, tximport_output_path.name)
         ),
         trimgalore_reports=trimgalore_reports,
     )
@@ -705,7 +755,7 @@ def count_matrix_and_multiqc(
     count_matrix_file = None
     multiqc_report_file = None
 
-    REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/"
+    REMOTE_PATH = urljoins(_remote_output_dir(output_directory), run_name, dir=True)
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     ts_outputs = [x for x in ts_outputs if x and x.passed_tximport]
@@ -740,7 +790,7 @@ def count_matrix_and_multiqc(
 
     count_matrix_file = LatchFile(
         str(raw_count_table_path),
-        REMOTE_PATH + "Quantification (salmon)/counts.tsv",
+        urljoin(REMOTE_PATH, "Quantification (salmon)/counts.tsv"),
     )
 
     try:
@@ -750,7 +800,7 @@ def count_matrix_and_multiqc(
         subprocess.run(["multiqc", *aux_paths], check=True)
         multiqc_report_file = LatchFile(
             "/root/multiqc_report.html",
-            REMOTE_PATH + "multiqc_report.html",
+            urljoin(REMOTE_PATH, "multiqc_report.html"),
         )
     except subprocess.CalledProcessError as e:
         print(f"Error occurred while generating MultiQC report -> {e}")
@@ -785,7 +835,12 @@ def leafcutter(
             LatchFile("/root/wf/__init__.py"),
         )
 
-    REMOTE_PATH = f"latch:///{_remote_output_dir(output_directory)}{run_name}/Alternative Splicing (LeafCutter)/"
+    REMOTE_PATH = urljoins(
+        _remote_output_dir(output_directory),
+        run_name,
+        "Alternative Splicing (LeafCutter)",
+        dir=True,
+    )
     """Remote path prefix for LatchFiles + LatchDirs"""
 
     message(
@@ -845,9 +900,9 @@ def leafcutter(
     cluster_es = Path("/root/leafcutter_ds_effect_sizes.txt")
 
     return (
-        LatchFile(cluster_counts, REMOTE_PATH + cluster_counts.name),
-        LatchFile(cluster_sig, REMOTE_PATH + cluster_sig.name),
-        LatchFile(cluster_es, REMOTE_PATH + cluster_es.name),
+        LatchFile(cluster_counts, urljoin(REMOTE_PATH, cluster_counts.name)),
+        LatchFile(cluster_sig, urljoin(REMOTE_PATH, cluster_sig.name)),
+        LatchFile(cluster_es, urljoin(REMOTE_PATH, cluster_es.name)),
     )
 
 
