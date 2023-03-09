@@ -912,10 +912,10 @@ class AlignmentTools(Enum):
 
 
 @reference_launch_plan(
-    project="4107",
+    project="1",
     domain="development",
     name="wf.__init__.deseq2_wf",
-    version="1.3.21-163c65",
+    version="1.3.28-a1d800",
 )
 def deseq2_wf(
     report_name: str,
