@@ -29,7 +29,7 @@ from kubernetes.client.models import (
 )
 from latch import map_task, medium_task, message, small_task, workflow
 from latch.resources.launch_plan import LaunchPlan
-from latch.types import LatchDir, LatchFile, file_glob
+from latch.types import LatchDir, LatchFile, file_glob, LatchOutputDir
 
 # from latch.verified import deseq2_wf
 
@@ -386,7 +386,7 @@ def do_trimgalore(
         os.remove(reads.r2.local_path)
 
     reports_directory = remote("Reports")
-    reports = file_glob("*trimming_report.txt", reports_directory)
+    reports = file_glob(f"{local_output}/*trimming_report.txt", reports_directory)
 
     return reports, trimmed_replicate
 
@@ -445,7 +445,6 @@ def _build_index(gentrome: Path) -> Path:
 
 @large_spot_task
 def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmonOutput]:
-
     SALMON_DIR = "/root/salmon_quant/"
     """Default location for salmon outputs."""
 
@@ -494,7 +493,10 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         run(["tar", "-xzvf", custom_salmon_index.local_path])
 
         if not Path("salmon_index").is_dir():
-            body = "The custom Salmon index provided must be a directory named 'salmon_index'"
+            body = (
+                "The custom Salmon index provided must be a directory named"
+                " 'salmon_index'"
+            )
             message("error", {"title": "Invalid custom Salmon index", "body": body})
             raise MalformedSalmonIndex(body)
 
@@ -694,7 +696,8 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     except subprocess.CalledProcessError as e:
         message("error", {"title": f"tximport error for {identifier}", "body": str(e)})
         print(
-            f"Unable to produce gene mapping from tximport. Error surfaced from tximport -> {e}"
+            "Unable to produce gene mapping from tximport. Error surfaced from"
+            f" tximport -> {e}"
         )
         print(f"Tximport error: {e}")
         return None
@@ -751,7 +754,6 @@ def count_matrix_and_multiqc(
     ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
     output_directory: Optional[LatchDir],
 ) -> (Optional[LatchFile], Optional[LatchFile]):
-
     count_matrix_file = None
     multiqc_report_file = None
 
@@ -794,9 +796,11 @@ def count_matrix_and_multiqc(
     )
 
     try:
-        aux_paths = [
-            str(Path(x.salmon_aux_output.local_path).resolve()) for x in ts_outputs
-        ]
+        aux_paths = []
+        for x in ts_outputs:
+            p = Path(x.salmon_aux_output.local_path).resolve()
+            p = p.rename(p.with_stem(x.sample_name))
+            aux_paths.append(str(p))
         subprocess.run(["multiqc", *aux_paths], check=True)
         multiqc_report_file = LatchFile(
             "/root/multiqc_report.html",
@@ -826,7 +830,6 @@ def leafcutter(
         FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
     ] = [],
 ) -> (LatchFile, LatchFile, LatchFile):
-
     if run_splicing is False:
         # random file noop, hack until boolean conditionals work
         return (
@@ -1027,7 +1030,7 @@ def rnaseq(
     salmon_index: Optional[LatchFile] = None,
     save_indices: bool = False,
     run_splicing: bool = False,
-    custom_output_dir: Optional[LatchDir] = None,
+    custom_output_dir: Optional[LatchOutputDir] = None,
 ):
     """Perform alignment and quantification on Bulk RNA-Sequencing reads
 
