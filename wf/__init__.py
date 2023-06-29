@@ -8,12 +8,12 @@ import shutil
 import subprocess
 import types
 import urllib.parse
-from urllib.parse import urljoin
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Iterable, List, Optional, Tuple, Union
+from urllib.parse import urljoin
 
 import lgenome
 from dataclasses_json import dataclass_json
@@ -21,15 +21,11 @@ from flytekit import task
 from flytekit.core.annotation import FlyteAnnotation
 from flytekit.core.launch_plan import reference_launch_plan
 from flytekitplugins.pod import Pod
-from kubernetes.client.models import (
-    V1Container,
-    V1PodSpec,
-    V1ResourceRequirements,
-    V1Toleration,
-)
+from kubernetes.client.models import (V1Container, V1PodSpec,
+                                      V1ResourceRequirements, V1Toleration)
 from latch import map_task, medium_task, message, small_task, workflow
 from latch.resources.launch_plan import LaunchPlan
-from latch.types import LatchDir, LatchFile, file_glob, LatchOutputDir
+from latch.types import LatchDir, LatchFile, LatchOutputDir, file_glob
 
 # from latch.verified import deseq2_wf
 
@@ -206,7 +202,6 @@ class TrimgaloreSalmonInput:
     three_prime_clip_r1: Optional[int] = None
     three_prime_clip_r2: Optional[int] = None
     save_indices: bool = False
-    run_splicing: bool = False
 
 
 @dataclass_json
@@ -221,8 +216,6 @@ class TrimgaloreSalmonOutput:
     gene_abundance_file: LatchFile
     """Gene abundance file from tximport."""
     trimgalore_reports: List[LatchFile]
-    """Temporary field for junction file."""
-    junction_file: LatchFile
 
 
 def slugify(value: str) -> str:
@@ -244,7 +237,6 @@ def prepare_inputs(
     custom_ref_genome: Optional[LatchFile] = None,
     custom_ref_trans: Optional[LatchFile] = None,
     custom_salmon_index: Optional[LatchFile] = None,
-    run_splicing: bool = False,
 ) -> List[TrimgaloreSalmonInput]:
     custom_names = []
     custom_files = []
@@ -275,7 +267,6 @@ def prepare_inputs(
             custom_names=custom_names,
             custom_files=custom_files,
             save_indices=save_indices,
-            run_splicing=run_splicing,
         )
         for sample in samples
     ]
@@ -598,78 +589,6 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     salmon_quant = Path(f"{SALMON_DIR}/quant.sf").rename(quant_path)
 
     junc_path = Path(f"/root/{input.sample_name}.bam.junc")
-    if input.run_splicing:
-        try:
-            # TODO - gaw so bad
-            print("\tDownloading STAR map.")
-            run(
-                [
-                    "aws",
-                    "s3",
-                    "sync",
-                    "s3://latch-genomes/Homo_sapiens/RefSeq/GRCh38.p14/STAR_index/",
-                    "STAR_index",
-                    "--no-progress",  # shh
-                ]
-            )
-
-            print(f"\tMaking splice-aware alignment map {input.sample_name}")
-            run(
-                [
-                    "STAR",
-                    "--genomeDir",
-                    "STAR_index",
-                    "--twopassMode",
-                    "Basic",
-                    "--outSAMstrandField",
-                    "intronMotif",
-                    "--outSAMtype",
-                    "BAM",
-                    "SortedByCoordinate",
-                    "--readFilesIn",
-                    *[str(read) for read in merged],
-                    "--runThreadN",
-                    "96",
-                ]
-            )
-
-            print(f"\tIndexing splice-aware alignment map {input.sample_name}")
-            run(
-                [
-                    "samtools",
-                    "index",
-                    "Aligned.sortedByCoord.out.bam",
-                    "-@",
-                    "96",
-                ]
-            )
-
-            print(f"\tIndexing splice-aware alignment map {input.sample_name}")
-            run(
-                [
-                    "regtools",
-                    "junctions",
-                    "extract",
-                    "Aligned.sortedByCoord.out.bam",
-                    "-s",
-                    "0",  # TODO strandedness
-                    "-o",
-                    str(junc_path),
-                ]
-            )
-
-            print("\tDone with junctions")
-
-        except subprocess.CalledProcessError as e:
-            message(
-                "error",
-                {
-                    "title": f"junction construction error for {input.sample_name}",
-                    "body": str(e),
-                },
-            )
-            print(f"Error building junction file: {e}")
-            return None
 
     # Free space.
     for path in merged:
@@ -705,13 +624,6 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     Path(f"{SALMON_DIR}/cmd_info.json").resolve().unlink()
     shutil.rmtree(Path(f"{SALMON_DIR}/logs").resolve())
 
-    if input.run_splicing:
-        junction_file = LatchFile(junc_path, urljoin(REMOTE_PATH, junc_path.name))
-    else:
-        # temp, Optional field in json data class no work
-        junction_file = LatchFile(
-            "/root/wf/run_tximport.R", urljoin(REMOTE_PATH, junc_path.name)
-        )
     return TrimgaloreSalmonOutput(
         passed_salmon=True,
         passed_tximport=True,
@@ -720,7 +632,6 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
         salmon_quant_file=LatchFile(
             salmon_quant, urljoin(REMOTE_PATH, salmon_quant.name)
         ),
-        junction_file=junction_file,
         gene_abundance_file=LatchFile(
             tximport_output_path, urljoin(REMOTE_PATH, tximport_output_path.name)
         ),
@@ -817,96 +728,6 @@ def count_matrix_and_multiqc(
         )
 
     return count_matrix_file, multiqc_report_file
-
-
-@medium_task
-def leafcutter(
-    run_name: str,
-    ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
-    output_directory: Optional[LatchDir],
-    run_splicing: bool = False,
-    manual_conditions: Annotated[
-        List[List[str]],
-        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
-    ] = [],
-) -> (LatchFile, LatchFile, LatchFile):
-    if run_splicing is False:
-        # random file noop, hack until boolean conditionals work
-        return (
-            LatchFile("/root/wf/__init__.py"),
-            LatchFile("/root/wf/__init__.py"),
-            LatchFile("/root/wf/__init__.py"),
-        )
-
-    REMOTE_PATH = urljoins(
-        _remote_output_dir(output_directory),
-        run_name,
-        "Alternative Splicing (LeafCutter)",
-        dir=True,
-    )
-    """Remote path prefix for LatchFiles + LatchDirs"""
-
-    message(
-        "info",
-        {
-            "title": "Generating alternative splicing junction file from all samples",
-            "body": "\n".join(f"- {x.sample_name}" for x in ts_outputs),
-        },
-    )
-
-    all_juncfiles = Path("/root/juncs.txt")
-    sample_names = []
-    with open(all_juncfiles, "w") as f:
-        for tso in ts_outputs:
-            junc_file = Path(tso.junction_file.local_path)
-            sample_name = junc_file.name.replace(" ", "")
-            sanitized_junc_file = Path(tso.junction_file.local_path).rename(sample_name)
-            sample_names.append(sample_name)
-            print(f"local: {sanitized_junc_file.resolve()}")
-            f.write(f"{sanitized_junc_file.resolve()}\n")
-
-    cluster_counts = Path(f"/root/{run_name}_perind_numers.counts.gz")
-    run(
-        [
-            "python",
-            "/root/leafcutter/clustering/leafcutter_cluster_regtools.py",
-            "-j",
-            str(all_juncfiles),
-            "-m",
-            "50",
-            "-o",
-            run_name,
-            "-l",
-            "5000000",
-            "-k=True",  # Don't error on weird chromosome names
-        ]
-    )
-
-    groups = Path("/root/groups.txt")
-    with open(groups, "w") as f:
-        for cond in manual_conditions:
-            f.write(f"{cond[0].replace(' ', '')}.bam {cond[1]}\n")
-
-    run(
-        [
-            "/root/leafcutter/scripts/leafcutter_ds.R",
-            "--num_threads",
-            "30",
-            str(cluster_counts),
-            str(groups),
-            "--min_samples_per_intron=1",
-            "--min_samples_per_group=1",
-        ]
-    )
-
-    cluster_sig = Path("/root/leafcutter_ds_cluster_significance.txt")
-    cluster_es = Path("/root/leafcutter_ds_effect_sizes.txt")
-
-    return (
-        LatchFile(cluster_counts, urljoin(REMOTE_PATH, cluster_counts.name)),
-        LatchFile(cluster_sig, urljoin(REMOTE_PATH, cluster_sig.name)),
-        LatchFile(cluster_es, urljoin(REMOTE_PATH, cluster_es.name)),
-    )
 
 
 class AlignmentTools(Enum):
@@ -1029,7 +850,6 @@ def rnaseq(
     star_index: Optional[LatchFile] = None,
     salmon_index: Optional[LatchFile] = None,
     save_indices: bool = False,
-    run_splicing: bool = False,
     custom_output_dir: Optional[LatchOutputDir] = None,
 ):
     """Perform alignment and quantification on Bulk RNA-Sequencing reads
@@ -1187,8 +1007,6 @@ def rnaseq(
                     flow:
                     - params:
                         - manual_conditions
-                    - params:
-                        - run_splicing
                 table:
                     display_name: File
                     _tmp_unwrap_optionals:
@@ -1202,8 +1020,6 @@ def rnaseq(
                         - conditions_table
                         - design_matrix_sample_id_column
                         - design_formula
-                    - params:
-                        - run_splicing
         - section: Alignment and Quantification
           flow:
             - text: >-
@@ -1390,11 +1206,6 @@ def rnaseq(
 
         output_location_fork:
 
-        run_splicing:
-
-          __metadata__:
-            display_name: Run Differential Splicing Analysis
-
         custom_output_dir:
           You can provide a custom location where this run's analysis outputs
           will be located.
@@ -1416,20 +1227,12 @@ def rnaseq(
         custom_ref_trans=custom_ref_trans,
         custom_salmon_index=salmon_index,
         save_indices=save_indices,
-        run_splicing=run_splicing,
     )
     outputs = map_task(trimgalore_salmon)(input=inputs)
     count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
         run_name=run_name,
         ts_outputs=outputs,
         output_directory=custom_output_dir,
-    )
-    a, b, c = leafcutter(
-        run_splicing=run_splicing,
-        run_name=run_name,
-        ts_outputs=outputs,
-        output_directory=custom_output_dir,
-        manual_conditions=manual_conditions,
     )
     deseq2_wf(
         report_name=run_name,
