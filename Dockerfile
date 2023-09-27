@@ -16,10 +16,10 @@ RUN apt-get install --yes libcurl4-openssl-dev libgsl-dev libssl-dev libxml2-dev
 
 COPY txImports.R /root/txImports.R
 RUN /root/txImports.R
-COPY lcImports.R /root/lcImports.R
-RUN /root/lcImports.R
+# COPY lcImports.R /root/lcImports.R
+# RUN /root/lcImports.R
 
-RUN apt-get install -y curl vim default-jre-headless zlib1g zlib1g-dev unzip cmake
+RUN apt-get install -y curl zlib1g zlib1g-dev unzip cmake
 RUN python3 -m pip install cutadapt
 RUN curl -fsSL https://github.com/FelixKrueger/TrimGalore/archive/0.6.6.tar.gz -o trim_galore.tar.gz &&\
     tar xvzf trim_galore.tar.gz &&\
@@ -80,6 +80,12 @@ RUN git clone https://github.com/davidaknowles/leafcutter
 COPY gentrome.sh /root/gentrome.sh
 
 RUN python3 -m pip install --upgrade multiqc matplotlib numpy scipy lgenome
+
+# Install STAR
+RUN curl -L https://github.com/alexdobin/STAR/archive/refs/tags/2.7.10a.tar.gz -o 2.7.10a.tar.gz &&\
+    tar xvzf 2.7.10a.tar.gz &&\
+    mv STAR-2.7.10a/bin/Linux_x86_64_static/STAR /bin &&\
+    rm -rf 2.7.10a 2.7.10a.tar.gz
 
 RUN python3 -m pip install latch --upgrade
 COPY wf/ /root/wf

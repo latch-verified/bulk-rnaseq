@@ -14,6 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated, Iterable, List, Optional, Tuple, Union
 from urllib.parse import urljoin
+import glob
 
 import lgenome
 from dataclasses_json import dataclass_json
@@ -217,6 +218,13 @@ class TrimgaloreSalmonOutput:
     """Gene abundance file from tximport."""
     trimgalore_reports: List[LatchFile]
 
+@dataclass_json
+@dataclass
+class TrimgaloreStarOutput:
+    sample_name: str
+    trimgalore_reports: List[LatchFile]
+    """Temporary field for junction file."""
+    star_dir: LatchDir
 
 def slugify(value: str) -> str:
     return value.lower().replace(" ", "_")
@@ -432,6 +440,166 @@ def _build_index(gentrome: Path) -> Path:
         ]
     )
     return Path("/root/salmon_index")
+
+
+@large_spot_task
+def trimgalore_star(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreStarOutput]:
+    REMOTE_PATH = f"latch:///{input.base_remote_output_dir}{input.run_name}/Alignment (STAR)/{input.sample_name}/"
+    """Remote path prefix for LatchFiles + LatchDirs"""
+
+    #
+    # Trimgalore (separate!)
+    try:
+        outputs = [do_trimgalore(input, i, x) for i, x in enumerate(input.replicates)]
+    except TrimgaloreError as e:
+        print(f"Handling failure in trimming {input.sample_name} gracefully.")
+        print(f"\tTrimming error ~ {e}")
+        return None
+
+    trimmed_replicates = [x[1] for x in outputs]
+    trimgalore_reports = [y for x in outputs for y in x[0]]
+
+    merged = _merge_replicates(trimmed_replicates, input.sample_name)
+
+    junc_path = Path(f"/root/{input.sample_name}.bam.junc")
+    try:
+        # TODO - gaw so bad
+        print("\tDownloading STAR map.")
+        run(
+            [
+                "aws",
+                "s3",
+                "sync",
+                "s3://latch-genomes/Homo_sapiens/RefSeq/GRCh38.p14/STAR_index/",
+                "STAR_index",
+                "--no-progress",  # shh
+            ]
+        )
+
+        print(f"\tMaking splice-aware alignment map {input.sample_name}")
+
+        run(
+            [
+                "STAR",
+                "--runThreadN",
+                "96",
+                "--quantMode",
+                "GeneCounts",
+                "--genomeLoad",
+                "LoadAndRemove",
+                "--outSAMtype",
+                "BAM",
+                "SortedByCoordinate",
+                "--genomeDir",
+                "/root/STAR_index",
+                "--readFilesIn",
+                *[str(read) for read in merged],
+                "--outFilterMultimapNmax",
+                "20",
+                "--outFilterMismatchNmax",
+                "10",
+                "--alignIntronMax",
+                "500000",
+                "--alignMatesGapMax",
+                "1000000",
+                "--sjdbScore",
+                "2",
+                "--alignSJDBoverhangMin",
+                "1",
+                "--limitBAMsortRAM",
+                "50000000000",
+                "--limitGenomeGenerateRAM",
+                "60000000000",
+                "--outFilterMatchNminOverLread",
+                "0.33",
+                "--outFilterScoreMinOverLread",
+                "0.33",
+                "--outSAMstrandField",
+                "intronMotif",
+                "NH",
+                "HI",
+                "NM",
+                "MD",
+                "AS",
+                "XS",
+                "--outSAMunmapped",
+                "Within",
+                "--outSAMheaderHD",
+                "@HD",
+                "VN:1.4",
+                "--outFileNamePrefix",
+                f"{input.sample_name}.STAR."
+            ]
+        )
+
+        # Glob all STAR files and move to directory
+        star_dir = Path(input.sample_name)
+        star_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\tIndexing splice-aware alignment map {input.sample_name}")
+
+
+        bam_file = f"{input.sample_name}.STAR.Aligned.sortedByCoord.out.bam"
+
+        run(
+            [
+                "samtools",
+                "index",
+                bam_file,
+                "-@",
+                "96",
+            ]
+        )
+
+        print(f"\tGenerating idxstats for {input.sample_name}")
+
+        stats_file = Path(f"{input.sample_name}.STAR.idxstats.output.txt")
+
+        with open(str(stats_file), 'w') as file:
+            # Run the command and redirect stdout to the file.
+            subprocess.run(
+                [
+                    "samtools",
+                    "idxstats",
+                    bam_file
+                ], stdout=file)
+        # print(f"\tIndexing splice-aware alignment map {input.sample_name}")
+        # run(
+        #     [
+        #         "regtools",
+        #         "junctions",
+        #         "extract",
+        #         "Aligned.sortedByCoord.out.bam",
+        #         "-s",
+        #         "0",  # TODO strandedness
+        #         "-o",
+        #         str(junc_path),
+        #     ]
+        # )
+
+        # print("\tDone with junctions")
+
+        star_outputs = glob.glob(f"{input.sample_name}.STAR.*")
+        
+        for output in star_outputs:
+            Path(output).rename(f"{str(star_dir)}/{output}")
+
+    except subprocess.CalledProcessError as e:
+        message(
+            "error",
+            {
+                "title": f"junction construction error for {input.sample_name}",
+                "body": str(e),
+            },
+        )
+        print(f"Error building junction file: {e}")
+        return None
+
+    return TrimgaloreStarOutput(
+        sample_name=input.sample_name,
+        star_dir=LatchDir(str(star_dir), f"latch:///STAR Test/{input.sample_name}"),
+        trimgalore_reports=trimgalore_reports,
+    )
 
 
 @large_spot_task
@@ -658,7 +826,6 @@ _SALMON_ALERT_PATTERN = re.compile(r"\[(warning|error)\] (.+?)(?:\[\d{4}|$)", re
 
 _COUNT_TABLE_GENE_ID_COLUMN = "gene_id"
 
-
 @medium_task
 def count_matrix_and_multiqc(
     run_name: str,
@@ -671,39 +838,13 @@ def count_matrix_and_multiqc(
     REMOTE_PATH = urljoins(_remote_output_dir(output_directory), run_name, dir=True)
     """Remote path prefix for LatchFiles + LatchDirs"""
 
-    ts_outputs = [x for x in ts_outputs if x and x.passed_tximport]
+    ts_outputs = [x for x in ts_outputs]
     message(
         "info",
         {
-            "title": "Generating count matrix from successful samples",
+            "title": "Generating MultiQC from successful samples",
             "body": "\n".join(f"- {x.sample_name}" for x in ts_outputs),
         },
-    )
-
-    combined_counts = defaultdict(dict)
-    for tso in ts_outputs:
-        gene_abundance_file = Path(tso.gene_abundance_file.local_path).resolve()
-        with gene_abundance_file.open("r") as f:
-            for row in csv.DictReader(f, dialect=csv.excel_tab):
-                gene_name = row["Name"]
-                combined_counts[gene_name][tso.sample_name] = row["NumReads"]
-
-    raw_count_table_path = Path("./counts.tsv").resolve()
-    with raw_count_table_path.open("w") as file:
-        sample_names = (x.sample_name for x in ts_outputs)
-        writer = csv.DictWriter(
-            file,
-            [_COUNT_TABLE_GENE_ID_COLUMN, *sample_names],
-            delimiter="\t",
-        )
-        writer.writeheader()
-        for gene_id, data in combined_counts.items():
-            data[_COUNT_TABLE_GENE_ID_COLUMN] = gene_id
-            writer.writerow(data)
-
-    count_matrix_file = LatchFile(
-        str(raw_count_table_path),
-        urljoin(REMOTE_PATH, "Quantification (salmon)/counts.tsv"),
     )
 
     try:
@@ -734,76 +875,8 @@ class AlignmentTools(Enum):
     star_salmon = "Traditional Alignment + Quantification"
     salmon = "Selective Alignment + Quantification"
 
-
-@reference_launch_plan(
-    project="1",
-    domain="development",
-    name="wf.__init__.deseq2_wf",
-    version="1.3.28-a1d800",
-)
-def deseq2_wf(
-    report_name: str,
-    count_table_source: str = "single",
-    raw_count_table: Optional[
-        Annotated[
-            LatchFile,
-            FlyteAnnotation(
-                {
-                    "_tmp_hack_deseq2": "counts_table",
-                    "rules": [
-                        {
-                            "regex": r".*\.(csv|tsv|xlsx)$",
-                            "message": "Expected a CSV, TSV, or XLSX file",
-                        }
-                    ],
-                }
-            ),
-        ]
-    ] = None,
-    raw_count_tables: List[LatchFile] = [],
-    count_table_gene_id_column: str = "gene_id",
-    output_location_type: str = "default",
-    output_location: Optional[LatchDir] = None,
-    conditions_source: str = "manual",
-    manual_conditions: Annotated[
-        List[List[str]],
-        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
-    ] = [],
-    conditions_table: Optional[
-        Annotated[
-            LatchFile,
-            FlyteAnnotation(
-                {
-                    "_tmp_hack_deseq2": "design_matrix",
-                    "rules": [
-                        {
-                            "regex": r".*\.(csv|tsv|xlsx)$",
-                            "message": "Expected a CSV, TSV, or XLSX file",
-                        }
-                    ],
-                }
-            ),
-        ]
-    ] = None,
-    design_matrix_sample_id_column: Optional[
-        Annotated[str, FlyteAnnotation({"_tmp_hack_deseq2": "design_id_column"})]
-    ] = None,
-    design_formula: Annotated[
-        List[List[str]],
-        FlyteAnnotation(
-            {
-                "_tmp_hack_deseq2": "design_formula",
-                "_tmp_hack_deseq2_allow_clustering": True,
-            }
-        ),
-    ] = [],
-    number_of_genes_to_plot: int = 30,
-) -> LatchDir:
-    ...
-
-
 @workflow
-def rnaseq(
+def rnaseq_star(
     samples: List[Sample],
     alignment_quantification_tools: AlignmentTools,
     ta_ref_genome_fork: str,
@@ -811,39 +884,6 @@ def rnaseq(
     output_location_fork: str,
     run_name: str,
     latch_genome: LatchGenome,
-    conditions_source: str = "none",
-    manual_conditions: Annotated[
-        List[List[str]],
-        FlyteAnnotation({"_tmp_hack_deseq2": "manual_design_matrix"}),
-    ] = [],
-    conditions_table: Optional[
-        Annotated[
-            LatchFile,
-            FlyteAnnotation(
-                {
-                    "_tmp_hack_deseq2": "design_matrix",
-                    "rules": [
-                        {
-                            "regex": r".*\.(csv|tsv|xlsx)$",
-                            "message": "Expected a CSV, TSV, or XLSX file",
-                        }
-                    ],
-                }
-            ),
-        ]
-    ] = None,
-    design_matrix_sample_id_column: Optional[
-        Annotated[str, FlyteAnnotation({"_tmp_hack_deseq2": "design_id_column"})]
-    ] = None,
-    design_formula: Annotated[
-        List[List[str]],
-        FlyteAnnotation(
-            {
-                "_tmp_hack_deseq2": "design_formula",
-                "_tmp_hack_deseq2_allow_clustering": True,
-            }
-        ),
-    ] = [],
     custom_gtf: Optional[LatchFile] = None,
     custom_ref_genome: Optional[LatchFile] = None,
     custom_ref_trans: Optional[LatchFile] = None,
@@ -962,7 +1002,7 @@ def rnaseq(
 
 
     __metadata__:
-        display_name: Bulk RNAseq
+        display_name: Bulk RNAseq (STAR)
         wiki_url: https://www.latch.wiki/bulk-rna-seq-end-to-end
         video_tutorial: https://www.loom.com/share/dfba09ba6f524722b5d829f2424a3a3f
         author:
@@ -985,41 +1025,6 @@ def rnaseq(
 
             - params:
                 - samples
-        - section: Sample Conditions for Differential Expression Analysis (Control vs Treatment, etc.)
-          flow:
-            - text: >-
-                  You can (optionally) group samples into condition groups so
-                  that downstream differential expression can be run on the
-                  resulting sample transcript counts. For example, labeling a
-                  subset of your samples as "Treatment" and another subset as
-                  "Control" will yield a list of transcripts/genes that are
-                  statistically different between the two groups.
-            - fork: conditions_source
-              flows:
-                none:
-                    display_name: No Differential Expression
-                    flow:
-                    - text: >-
-                          Select "Manual Input" or "File" to construct your
-                              condition groups.
-                manual:
-                    display_name: Manual Input
-                    flow:
-                    - params:
-                        - manual_conditions
-                table:
-                    display_name: File
-                    _tmp_unwrap_optionals:
-                        - conditions_table
-                        - design_matrix_sample_id_column
-                        - design_formula
-                    flow:
-                    - text: >-
-                        Table with sample IDs and experimental conditions
-                    - params:
-                        - conditions_table
-                        - design_matrix_sample_id_column
-                        - design_formula
         - section: Alignment and Quantification
           flow:
             - text: >-
@@ -1094,29 +1099,6 @@ def rnaseq(
             batch_table_column: true
             _tmp:
                 custom_ingestion: auto
-
-        manual_conditions:
-
-          __metadata__:
-            display_name: Apply conditions to your samples:
-
-        conditions_table:
-
-          __metadata__:
-            display_name: Design Matrix
-            appearance:
-                batch_table_column: true
-
-        design_matrix_sample_id_column:
-
-            __metadata__:
-              display_name: Sample ID Column
-
-        design_formula:
-
-            __metadata__:
-              display_name: Design Formula
-
 
         alignment_quantification_tools:
 
@@ -1228,31 +1210,40 @@ def rnaseq(
         custom_salmon_index=salmon_index,
         save_indices=save_indices,
     )
-    outputs = map_task(trimgalore_salmon)(input=inputs)
-    count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
-        run_name=run_name,
-        ts_outputs=outputs,
-        output_directory=custom_output_dir,
-    )
-    deseq2_wf(
-        report_name=run_name,
-        count_table_source="single",
-        raw_count_table=count_matrix_file,
-        raw_count_tables=[],
-        count_table_gene_id_column="gene_id",
-        output_location_type="default",
-        output_location=custom_output_dir,
-        conditions_source=conditions_source,
-        manual_conditions=manual_conditions,
-        conditions_table=conditions_table,
-        design_matrix_sample_id_column=design_matrix_sample_id_column,
-        design_formula=design_formula,
-        number_of_genes_to_plot=30,
+    outputs = map_task(trimgalore_star)(input=inputs)
+    # count_matrix_file, multiqc_report_file = count_matrix_and_multiqc(
+    #     run_name=run_name,
+    #     ts_outputs=outputs,
+    #     output_directory=custom_output_dir,
+    # )
+
+
+if __name__ == "__main__":
+    inputs = prepare_inputs(
+        samples=[
+            Sample(
+                name="Test",
+                strandedness=Strandedness.auto,
+                replicates=[
+                    SingleEndReads(
+                        r1=LatchFile(
+                            "s3://latch-public/verified/bulk-rnaseq/small-test/10k_reads_human.fastq.gz",
+                        ),
+                    ),
+                ],
+            ),
+        ],
+        run_name="Small Test",
+        latch_genome=LatchGenome.RefSeq_hg38_p14,
+        save_indices=False,
     )
 
+    input = inputs[0]
+
+    trimgalore_star(input=input)
 
 LaunchPlan(
-    rnaseq,
+    rnaseq_star,
     "Small Data - 10K Human Reads",
     {
         "samples": [
@@ -1273,7 +1264,7 @@ LaunchPlan(
 )
 
 LaunchPlan(
-    rnaseq,
+    rnaseq_star,
     "Test Data - CoCl2 vs Control (Knyazev, 2021)",
     {
         "samples": [
