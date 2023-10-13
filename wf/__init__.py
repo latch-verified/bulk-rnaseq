@@ -21,8 +21,12 @@ from flytekit import task
 from flytekit.core.annotation import FlyteAnnotation
 from flytekit.core.launch_plan import reference_launch_plan
 from flytekitplugins.pod import Pod
-from kubernetes.client.models import (V1Container, V1PodSpec,
-                                      V1ResourceRequirements, V1Toleration)
+from kubernetes.client.models import (
+    V1Container,
+    V1PodSpec,
+    V1ResourceRequirements,
+    V1Toleration,
+)
 from latch import map_task, medium_task, message, small_task, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, LatchOutputDir, file_glob
@@ -736,10 +740,10 @@ class AlignmentTools(Enum):
 
 
 @reference_launch_plan(
-    project="1",
+    project="71",
     domain="development",
     name="wf.__init__.deseq2_wf",
-    version="1.3.28-a1d800",
+    version="1.4.0-20c9a9",
 )
 def deseq2_wf(
     report_name: str,
@@ -774,7 +778,7 @@ def deseq2_wf(
             LatchFile,
             FlyteAnnotation(
                 {
-                    "_tmp_hack_deseq2": "design_matrix",
+                    "_tmp_hack_deseq2": "design_matrix_registry",
                     "rules": [
                         {
                             "regex": r".*\.(csv|tsv|xlsx)$",
@@ -821,7 +825,7 @@ def rnaseq(
             LatchFile,
             FlyteAnnotation(
                 {
-                    "_tmp_hack_deseq2": "design_matrix",
+                    "_tmp_hack_deseq2": "design_matrix_registry",
                     "rules": [
                         {
                             "regex": r".*\.(csv|tsv|xlsx)$",
@@ -1008,7 +1012,7 @@ def rnaseq(
                     - params:
                         - manual_conditions
                 table:
-                    display_name: File
+                    display_name: "File/Registry"
                     _tmp_unwrap_optionals:
                         - conditions_table
                         - design_matrix_sample_id_column
