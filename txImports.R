@@ -1,14 +1,16 @@
 #!/usr/bin/env Rscript
 if (!require("jsonlite", quietly = TRUE)) {
-    install.packages("jsonlite")
+  pak::pak("jsonlite")
 }
 if (!require("BiocManager", quietly = TRUE)) {
-    install.packages("BiocManager")
+  pak::pak("BiocManager")
 }
 
-BiocManager::install("tximport")
-install.packages("RCurl")
-BiocManager::install("GenomicFeatures")
+pak::pak(c(
+  "tximport",
+  "RCurl",
+  "GenomicFeatures"
+))
 
 library("tximport")
 library("GenomicFeatures")

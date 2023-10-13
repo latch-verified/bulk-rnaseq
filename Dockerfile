@@ -8,11 +8,17 @@ RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-key '95C0FAF38DB3CCAD0C0
 RUN debian_codename=$(lsb_release --codename --short) &&\
     add-apt-repository "deb https://cloud.r-project.org/bin/linux/debian ${debian_codename}-cran40/"
 
-RUN apt-get update &&\
-     apt-get install --yes r-base r-base-dev locales &&\
-     apt-mark hold r-base r-base-dev
+run wget https://github.com/r-lib/rig/releases/download/latest/rig-linux-latest.tar.gz
+run tar \
+    --extract \
+    --gunzip \
+    --file rig-linux-latest.tar.gz \
+    --directory /usr/local/
+run rm rig-linux-latest.tar.gz
+run rig add release
 
-RUN apt-get install --yes libcurl4-openssl-dev libgsl-dev libssl-dev libxml2-dev
+# >>> R packages
+env R_PKG_SYSREQS2="true"
 
 COPY txImports.R /root/txImports.R
 RUN /root/txImports.R
@@ -49,17 +55,18 @@ RUN curl -s https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.
 RUN curl -L https://github.com/samtools/samtools/releases/download/1.16/samtools-1.16.tar.bz2 -o samtools-1.16.tar.bz2 &&\
     tar -vxjf samtools-1.16.tar.bz2 &&\
     cd samtools-1.16 &&\
+    ./configure --without-curses &&\
     make &&\
     make install
 
-RUN apt-get install -y liblzma-dev
+# RUN apt-get upgrade --yes liblzma-dev
 RUN curl -L https://tukaani.org/xz/xz-5.2.6.tar.gz -o xz-5.2.6.tar.gz &&\
     tar -xzvf xz-5.2.6.tar.gz &&\
     cd xz-5.2.6 &&\
     ./configure --enable-shared &&\
     make &&\
     make install &&\
-    ldconfig 
+    ldconfig
 RUN curl -L https://github.com/griffithlab/regtools/archive/refs/tags/0.5.2.tar.gz -o 0.5.2.tar.gz &&\
     tar -vxzf 0.5.2.tar.gz  &&\
     cd regtools-0.5.2 &&\
@@ -73,9 +80,6 @@ RUN wget https://sourceforge.net/projects/libpng/files/zlib/1.2.9/zlib-1.2.9.tar
     tar -xzvf download &&\
     cd zlib-1.2.9 &&\
     ./configure && make && make install
-
-RUN apt-get install -y git 
-RUN git clone https://github.com/davidaknowles/leafcutter
 
 COPY gentrome.sh /root/gentrome.sh
 
