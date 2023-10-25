@@ -1,6 +1,7 @@
 """latch/rnaseq"""
 
 import csv
+from datetime import datetime
 import functools
 import os
 import re
@@ -12,7 +13,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Iterable, List, Optional, Tuple, Union
+from typing import Annotated, Dict, Iterable, List, Optional, Tuple, Union
 from urllib.parse import urljoin
 
 import lgenome
@@ -21,6 +22,7 @@ from flytekit import task
 from flytekit.core.annotation import FlyteAnnotation
 from flytekit.core.launch_plan import reference_launch_plan
 from flytekitplugins.pod import Pod
+from flytekit.extras.persistence import LatchPersistence
 from kubernetes.client.models import (
     V1Container,
     V1PodSpec,
@@ -30,6 +32,10 @@ from kubernetes.client.models import (
 from latch import map_task, medium_task, message, small_task, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile, LatchOutputDir, file_glob
+from latch.registry.table import Table
+from latch.registry.record import Record
+from latch.registry.project import Project
+from latch.registry.types import LinkedRecordType
 
 # from latch.verified import deseq2_wf
 
@@ -61,7 +67,7 @@ def _get_96_spot_pod() -> Pod:
     )
 
 
-large_spot_task = task(task_config=_get_96_spot_pod(), retries=3)
+large_spot_task = task(task_config=_get_96_spot_pod(), retries=3, cache=True)
 
 
 def _capture_output(command: List[str]) -> Tuple[int, str]:
@@ -160,6 +166,7 @@ class Sample:
     name: str
     strandedness: Strandedness
     replicates: List[Replicate]
+    registry_sample_id: Optional[str] = None
 
 
 class LatchGenome(Enum):
@@ -206,6 +213,7 @@ class TrimgaloreSalmonInput:
     three_prime_clip_r1: Optional[int] = None
     three_prime_clip_r2: Optional[int] = None
     save_indices: bool = False
+    registry_sample_id: Optional[str] = None
 
 
 @dataclass_json
@@ -220,13 +228,14 @@ class TrimgaloreSalmonOutput:
     gene_abundance_file: LatchFile
     """Gene abundance file from tximport."""
     trimgalore_reports: List[LatchFile]
+    registry_sample_id: Optional[str] = None
 
 
 def slugify(value: str) -> str:
     return value.lower().replace(" ", "_")
 
 
-@small_task
+@small_task(cache=True)
 def prepare_inputs(
     samples: List[Sample],
     run_name: str,
@@ -271,6 +280,7 @@ def prepare_inputs(
             custom_names=custom_names,
             custom_files=custom_files,
             save_indices=save_indices,
+            registry_sample_id=sample.registry_sample_id,
         )
         for sample in samples
     ]
@@ -628,18 +638,35 @@ def trimgalore_salmon(input: TrimgaloreSalmonInput) -> Optional[TrimgaloreSalmon
     Path(f"{SALMON_DIR}/cmd_info.json").resolve().unlink()
     shutil.rmtree(Path(f"{SALMON_DIR}/logs").resolve())
 
+    counts_file = LatchFile(
+        salmon_quant,
+        remote_path=urljoin(REMOTE_PATH, salmon_quant.name),
+    )
+
+    if input.registry_sample_id is not None:
+        r = Record(id=input.registry_sample_id)
+
+        t = Table(r.get_table_id())
+        with t.update() as upd:
+            upd.upsert_column("Counts", LatchFile)
+
+        lp = LatchPersistence()
+        lp.upload(counts_file.path, counts_file.remote_path)
+
+        with t.update() as upd:
+            upd.upsert_record(r.get_name(), **{"Counts": counts_file})
+
     return TrimgaloreSalmonOutput(
         passed_salmon=True,
         passed_tximport=True,
         sample_name=input.sample_name,
         salmon_aux_output=LatchDir(SALMON_DIR, REMOTE_PATH),
-        salmon_quant_file=LatchFile(
-            salmon_quant, urljoin(REMOTE_PATH, salmon_quant.name)
-        ),
+        salmon_quant_file=counts_file,
         gene_abundance_file=LatchFile(
             tximport_output_path, urljoin(REMOTE_PATH, tximport_output_path.name)
         ),
         trimgalore_reports=trimgalore_reports,
+        registry_sample_id=input.registry_sample_id,
     )
 
 
@@ -663,7 +690,7 @@ _SALMON_ALERT_PATTERN = re.compile(r"\[(warning|error)\] (.+?)(?:\[\d{4}|$)", re
 _COUNT_TABLE_GENE_ID_COLUMN = "gene_id"
 
 
-@medium_task
+@medium_task(cache=True)
 def count_matrix_and_multiqc(
     run_name: str,
     ts_outputs: List[Optional[TrimgaloreSalmonOutput]],
@@ -675,7 +702,9 @@ def count_matrix_and_multiqc(
     REMOTE_PATH = urljoins(_remote_output_dir(output_directory), run_name, dir=True)
     """Remote path prefix for LatchFiles + LatchDirs"""
 
-    ts_outputs = [x for x in ts_outputs if x and x.passed_tximport]
+    ts_outputs: List[TrimgaloreSalmonOutput] = [
+        x for x in ts_outputs if x is not None and x.passed_tximport
+    ]
     message(
         "info",
         {
@@ -730,6 +759,55 @@ def count_matrix_and_multiqc(
                 "body": "See logs for more information",
             },
         )
+
+    record_id = ts_outputs[0].registry_sample_id
+    if record_id is not None:
+        r = Record(record_id)
+        table_id = r.get_table_id()
+        t = Table(table_id)
+        p = Project(t.get_project_id())
+
+        out_t = next(
+            (t for t in p.list_tables() if t.get_display_name() == "RNASeq Outputs"),
+            None,
+        )
+        if out_t is None:
+            with p.update() as upd:
+                upd.upsert_table("RNASeq Outputs")
+
+            out_t = next(
+                (t for t in p.list_tables() if t.get_display_name() == "RNASeq Outputs")
+            )
+
+        with out_t.update() as upd:
+            upd.upsert_column("Run name", str, required=True)
+            upd.upsert_column("Date", datetime, required=True)
+            upd.upsert_column("Counts", LatchFile, required=True)
+            upd.upsert_column("MultiQC", LatchFile, required=True)
+            upd.upsert_column(
+                "Samples", List[LinkedRecordType(table_id)], required=True
+            )
+
+        lp = LatchPersistence()
+        lp.upload(count_matrix_file.path, count_matrix_file.remote_path)
+        lp.upload(multiqc_report_file.path, multiqc_report_file.remote_path)
+
+        now = datetime.now().astimezone()
+        with out_t.update() as upd:
+            upd.upsert_record(
+                run_name,
+                **{
+                    "Run name": run_name,
+                    "Date": now,
+                    "Counts": count_matrix_file,
+                    "MultiQC": multiqc_report_file,
+                    "Samples": [
+                        Record(x.registry_sample_id)
+                        for x in ts_outputs
+                        if x.registry_sample_id is not None
+                    ],
+                },
+            )
 
     return count_matrix_file, multiqc_report_file
 
